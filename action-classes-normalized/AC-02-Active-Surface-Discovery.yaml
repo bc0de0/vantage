@@ -1,0 +1,18 @@
+id: AC-ACTIVE-SURFACE
+name: Active Surface Discovery
+description: Actively probe for reachable assets or endpoints
+intent_domains: [discovery]
+roe_category: active_non_invasive
+exposure_cost: medium
+operator_involvement: optional
+preconditions: [network_reachability]
+notes: No enumeration depth implied
+id: AC-02
+name: Active Surface Discovery
+description: Actively probe for reachable assets or endpoints
+intent_domains: [discovery]
+roe_category: active_non_invasive
+exposure_cost: medium
+operator_involvement: optional
+preconditions: [network_reachability]
+notes: Presence detection only

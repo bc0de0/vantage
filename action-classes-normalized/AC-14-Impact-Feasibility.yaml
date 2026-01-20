@@ -1,0 +1,18 @@
+id: AC-IMPACT-FEASIBILITY
+name: Impact Feasibility Assessment
+description: Assess whether impact is theoretically achievable
+intent_domains: [impact]
+roe_category: active_invasive
+exposure_cost: high
+operator_involvement: required
+preconditions: [access_established]
+notes: No actual impact execution
+id: AC-14
+name: Impact Feasibility Assessment
+description: Assess whether impact is theoretically achievable
+intent_domains: [impact]
+roe_category: active_invasive
+exposure_cost: high
+operator_involvement: required
+preconditions: [access_established]
+notes: No execution

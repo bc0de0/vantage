@@ -1,0 +1,9 @@
+id: AC-PROTOCOL-META
+name: Protocol Metadata Inspection
+description: Inspect protocol-level metadata without authentication
+intent_domains: [discovery]
+roe_category: active_non_invasive
+exposure_cost: medium
+operator_involvement: optional
+preconditions: [network_reachability]
+notes: TLS, SSH, SMTP metadata
