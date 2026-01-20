@@ -1,6 +1,8 @@
 package main
 
 import (
+	_ "vantage/techniqueset" // ← CLOSED-WORLD TECHNIQUE REGISTRATION
+
 	"fmt"
 	"os"
 
