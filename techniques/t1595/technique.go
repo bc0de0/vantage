@@ -1,122 +1,143 @@
 package t1595
 
 import (
-	"context"
 	"errors"
 
 	"vantage/techniques"
 )
 
-// -----------------------------------------------------------------------------
-// Technique: T1595 — Active Scanning
+// ============================================================================
+// TECHNIQUE T1595 — ACTIVE SCANNING (DECISION ONLY)
 //
-// STATUS:
-// - Stub implementation (v0.x)
-// - Execution logic intentionally absent
+// This file:
+// - Performs NO scanning
+// - Executes NO tools
+// - Has NO side effects
 //
-// PURPOSE:
-// This file serves as the canonical reference implementation for all
-// VANTAGE techniques.
-//
-// Any future technique MUST follow this structure exactly.
-// Deviations require architectural review.
-// -----------------------------------------------------------------------------
+// It exists ONLY to declare which Action Classes may be considered.
+// ============================================================================
 
-// Technique1595 implements the techniques.Technique interface.
-//
-// DESIGN NOTES:
-// - Stateless by design
-// - No configuration stored on the struct
-// - Safe for reuse across executions
-//
-// Techniques MUST NOT:
-// - Carry mutable fields
-// - Cache results
-// - Store runtime state
-//
-// All state belongs to the executor.
 type Technique1595 struct{}
 
 // ID returns the canonical technique identifier.
-//
-// This value is:
-// - Security-critical
-// - Used for ROE enforcement
-// - Used for registry lookup
-// - Used in evidence and reporting
-//
-// It MUST:
-// - Be stable
-// - Match MITRE nomenclature
-// - Never change once released
 func (t *Technique1595) ID() string {
 	return "T1595"
 }
 
-// Description returns a human-readable summary of the technique.
-//
-// This text is used for:
-// - Operator awareness
-// - Audit output
-// - Reports
-//
-// It MUST:
-// - Be factual
-// - Be concise
-// - Avoid operational detail
-// - Avoid speculative impact language
+// Description returns a non-operational summary.
 func (t *Technique1595) Description() string {
-	return "Active Scanning"
+	return "Active scanning of target surface to identify reachable assets and services"
 }
 
-// Execute performs the technique against a single target.
+// Resolve determines admissible Action Classes.
 //
-// IMPORTANT EXECUTION RULES:
-//
-// 1. This function MUST honor context cancellation.
-// 2. This function MUST block until completion or cancellation.
-// 3. This function MUST perform exactly ONE adversary action.
-// 4. This function MUST NOT:
-//   - Spawn goroutines
-//   - Retry indefinitely
-//   - Write to disk
-//   - Persist access
-//   - Call other techniques
-//
-// RETURN VALUE:
-// - nil     → Technique executed successfully
-// - error   → Technique failed or was aborted
-//
-// NOTE:
-// This stub intentionally returns an error to prevent accidental use.
-// Real execution logic will be added only after ROE, exposure, and
-// evidence pipelines are finalized.
-func (t *Technique1595) Execute(ctx context.Context, target string) error {
-	// Defensive guard: context must be non-nil
-	if ctx == nil {
-		return errors.New("nil context provided to technique")
+// PURE FUNCTION GUARANTEES:
+// - No I/O
+// - No global state
+// - Deterministic output
+func (t *Technique1595) Resolve(
+	input techniques.ResolveInput,
+) (*techniques.Resolution, error) {
+
+	// -----------------------------------------------------------------
+	// Structural sanity check
+	// -----------------------------------------------------------------
+	if input.TechniqueID != t.ID() {
+		return nil, errors.New("techniques/t1595: technique ID mismatch")
 	}
 
-	// Defensive guard: target must be non-empty
-	if target == "" {
-		return errors.New("empty target provided to technique")
+	res := &techniques.Resolution{
+		TechniqueID: t.ID(),
 	}
 
-	// Explicit stub failure.
-	// This prevents silent success during early development
-	// and forces intentional implementation.
-	return errors.New("T1595 execution not implemented")
+	allowed := []string{}
+	excluded := []techniques.ExcludedActionClass{}
+
+	// -----------------------------------------------------------------
+	// Intent domain gate
+	// -----------------------------------------------------------------
+	intentOK := false
+	for _, d := range input.AllowedIntentDomains {
+		if d == "discovery" || d == "enumeration" {
+			intentOK = true
+			break
+		}
+	}
+
+	if !intentOK {
+		res.Rationale = "Intent does not permit discovery or enumeration"
+		return res, nil
+	}
+
+	// -----------------------------------------------------------------
+	// ROE category gate
+	// -----------------------------------------------------------------
+	roeOK := false
+	for _, c := range input.AllowedROECategories {
+		if c == "active_non_invasive" {
+			roeOK = true
+			break
+		}
+	}
+
+	if !roeOK {
+		res.Rationale = "ROE does not permit active non-invasive actions"
+		return res, nil
+	}
+
+	// -----------------------------------------------------------------
+	// Baseline allowed classes
+	// -----------------------------------------------------------------
+	allowed = append(allowed, "AC-03") // Reachability validation
+
+	switch input.ExposureBudget {
+	case "medium", "high":
+		allowed = append(allowed, "AC-02")
+	case "low":
+		excluded = append(excluded, techniques.ExcludedActionClass{
+			ActionClassID: "AC-02",
+			Reason:        "Exposure budget insufficient",
+		})
+	}
+
+	if input.ExposureBudget == "high" {
+		allowed = append(allowed, "AC-04", "AC-05")
+	} else {
+		excluded = append(excluded,
+			techniques.ExcludedActionClass{
+				ActionClassID: "AC-04",
+				Reason:        "Exposure budget insufficient",
+			},
+			techniques.ExcludedActionClass{
+				ActionClassID: "AC-05",
+				Reason:        "Exposure budget insufficient",
+			},
+		)
+	}
+
+	// -----------------------------------------------------------------
+	// Hard exclusions (documented for audit)
+	// -----------------------------------------------------------------
+	for _, id := range []string{
+		"AC-06", "AC-07", "AC-08", "AC-09", "AC-10",
+		"AC-11", "AC-12", "AC-13", "AC-14", "AC-15",
+	} {
+		excluded = append(excluded, techniques.ExcludedActionClass{
+			ActionClassID: id,
+			Reason:        "Out of scope for T1595 by doctrine",
+		})
+	}
+
+	res.AllowedActionClasses = allowed
+	res.ExcludedActionClasses = excluded
+	res.Rationale = "Resolved admissible action classes for active scanning"
+
+	return res, nil
 }
 
-// init registers the technique with the global registry.
-//
-// REGISTRATION RULES:
-// - Registration MUST happen in init()
-// - Registration MUST be unconditional
-// - Registration MUST panic on failure
-//
-// This ensures the technique is visible at startup
-// and cannot be dynamically injected at runtime.
+// -----------------------------------------------------------------------------
+// INIT-TIME REGISTRATION
+// -----------------------------------------------------------------------------
 func init() {
 	techniques.Register(&Technique1595{})
 }
