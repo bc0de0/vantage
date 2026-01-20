@@ -1,0 +1,12 @@
+# Go
+/bin/
+/vendor/
+*.exe
+*.log
+
+# Env
+.env
+
+# OS
+.DS_Store
+Thumbs.db
