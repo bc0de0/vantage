@@ -1,0 +1,9 @@
+id: AC-CONTROL-WEAKNESS
+name: Control Weakness Validation
+description: Validate effectiveness of security controls
+intent_domains: [validation]
+roe_category: active_invasive
+exposure_cost: medium
+operator_involvement: required
+preconditions: []
+notes: Defensive posture assessment

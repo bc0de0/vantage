@@ -1,0 +1,9 @@
+id: AC-15
+name: External Execution Required
+description: Action requires execution outside VANTAGE
+intent_domains: [impact]
+roe_category: active_invasive
+exposure_cost: critical
+operator_involvement: external_only
+preconditions: []
+notes: Authorization and evidence only

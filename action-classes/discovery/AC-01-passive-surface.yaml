@@ -1,0 +1,9 @@
+id: AC-PASSIVE-SURFACE
+name: Passive Surface Observation
+description: Observe externally visible attributes without interaction
+intent_domains: [discovery]
+roe_category: passive
+exposure_cost: very_low
+operator_involvement: none
+preconditions: []
+notes: DNS, certificate transparency, passive OSINT

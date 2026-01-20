@@ -1,0 +1,9 @@
+id: AC-09
+name: Access Establishment
+description: Establish authenticated access
+intent_domains: [access]
+roe_category: active_invasive
+exposure_cost: high
+operator_involvement: required
+preconditions: [credential_material_present]
+notes: No persistence

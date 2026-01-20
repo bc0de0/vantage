@@ -1,0 +1,9 @@
+id: AC-DATA-VERIFY
+name: Data Exposure Verification
+description: Verify presence or accessibility of sensitive data
+intent_domains: [validation]
+roe_category: active_invasive
+exposure_cost: high
+operator_involvement: required
+preconditions: [access_established]
+notes: No exfiltration

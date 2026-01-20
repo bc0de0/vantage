@@ -1,0 +1,9 @@
+id: AC-03
+name: Reachability Validation
+description: Validate network or service reachability
+intent_domains: [discovery]
+roe_category: active_non_invasive
+exposure_cost: low
+operator_involvement: optional
+preconditions: [network_reachability]
+notes: No service identification

@@ -1,0 +1,45 @@
+version: v1
+description: >
+  Canonical ActionClass schema for VANTAGE.
+  ActionClasses define admissible categories of adversary behavior.
+  They are tool-agnostic, step-agnostic, and execution-free.
+
+fields:
+  id: string                  # Stable identifier (AC-XX)
+  name: string                # Human-readable name
+  description: string         # Semantic meaning (not how)
+  intent_domains:
+    - discovery
+    - enumeration
+    - access
+    - validation
+    - impact
+  roe_category:
+    - passive
+    - active_non_invasive
+    - active_invasive
+    - destructive
+  exposure_cost:
+    - very_low
+    - low
+    - medium
+    - high
+    - critical
+  operator_involvement:
+    - none
+    - optional
+    - required
+    - external_only
+  preconditions:
+    - network_reachability
+    - credential_material_present
+    - access_established
+    - user_interaction
+    - execution_environment
+  notes: string
+
+doctrine:
+  - ActionClasses are finite and canonical
+  - AI may reference but never modify ActionClasses
+  - New ActionClasses require human review and version bump
+  - ActionClasses describe admissibility, not execution

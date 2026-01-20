@@ -42,18 +42,9 @@ require github.com/spf13/pflag v1.0.5 // indirect
 // Included transitively; no direct usage.
 require github.com/inconshreveable/mousetrap v1.1.0 // indirect
 
-// YAML v3 — Declarative intent & ROE parsing.
-// Used strictly for configuration, never execution.
-require gopkg.in/yaml.v3 v3.0.1
-
 // --------------------------------------------------------------------
 // CRYPTOGRAPHY (EVIDENCE INTEGRITY)
 // --------------------------------------------------------------------
-
-// x/crypto — Supplemental cryptographic primitives.
-// Used for hashing/signing evidence artifacts.
-// First-party Go project, security-reviewed.
-require golang.org/x/crypto v0.19.0
 
 // UUID — Deterministic artifact identifiers.
 //
@@ -66,7 +57,6 @@ require golang.org/x/crypto v0.19.0
 // - This is NOT used for cryptography
 // - This is NOT used for randomness beyond uniqueness
 require github.com/google/uuid v1.6.0
-
 
 // --------------------------------------------------------------------
 // EXPLICITLY DEFERRED DEPENDENCIES

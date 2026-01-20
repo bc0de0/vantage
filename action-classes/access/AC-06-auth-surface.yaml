@@ -1,0 +1,9 @@
+id: AC-AUTH-SURFACE
+name: Authentication Surface Testing
+description: Assess authentication mechanisms without credential use
+intent_domains: [discovery]
+roe_category: active_invasive
+exposure_cost: high
+operator_involvement: required
+preconditions: [network_reachability]
+notes: No login attempts
