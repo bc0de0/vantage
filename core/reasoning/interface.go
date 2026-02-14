@@ -7,11 +7,12 @@ import (
 
 // TechniqueEffect describes expected outcomes for a technique.
 type TechniqueEffect struct {
-	TechniqueID string
-	Impact      float64
-	Risk        float64
-	Stealth     float64
-	Produces    []string
+	TechniqueID   string
+	ActionClassID string
+	Impact        float64
+	Risk          float64
+	Stealth       float64
+	Produces      []string
 }
 
 // TechniqueEffectRegistry stores technique effects used during planning.
@@ -45,13 +46,14 @@ type PlannerQuery struct {
 
 // RankedAction is a scored action candidate returned by the planner.
 type RankedAction struct {
-	TechniqueID string
-	Target      string
-	Score       float64
-	Impact      float64
-	Risk        float64
-	Stealth     float64
-	Reason      string
+	TechniqueID   string
+	ActionClassID string
+	Target        string
+	Score         float64
+	Impact        float64
+	Risk          float64
+	Stealth       float64
+	Reason        string
 }
 
 // RankedActionPlanner returns ranked next actions.
