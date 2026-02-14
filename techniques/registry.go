@@ -22,23 +22,22 @@ import (
 
 // RegisterAll returns the complete static technique set keyed by Technique.ID().
 func RegisterAll() map[string]Technique {
-	all := []Technique{
-		ac_01_passive_observation.PassiveDNSCollection{},
-		ac_02_active_surface_discovery.SurfaceProbe{},
-		ac_03_reachability_validation.ReachabilityValidator{},
-		ac_04_service_identification.ServiceIdentifier{},
-		ac_05_protocol_metadata.ProtocolMetadataInspector{},
-		ac_06_version_enumeration.VersionEnumerator{},
-		ac_07_auth_surface_analysis.AuthSurfaceAnalyzer{},
-		ac_08_credential_validation.CredentialValidator{},
-		ac_09_access_establishment.AccessEstablisher{},
-		ac_10_privilege_assessment.PrivilegeAssessor{},
-		ac_11_lateral_reachability.LateralReachabilityAnalyzer{},
-		ac_12_execution_capability.ExecutionCapabilityValidator{},
-		ac_13_data_exposure.DataExposureVerifier{},
-		ac_14_impact_feasibility.ImpactFeasibilityAssessor{},
-		ac_15_external_execution.ExternalExecutionCoordinator{},
-	}
+	all := make([]Technique, 0, 75)
+	all = append(all, ac_01_passive_observation.All()...)
+	all = append(all, ac_02_active_surface_discovery.All()...)
+	all = append(all, ac_03_reachability_validation.All()...)
+	all = append(all, ac_04_service_identification.All()...)
+	all = append(all, ac_05_protocol_metadata.All()...)
+	all = append(all, ac_06_version_enumeration.All()...)
+	all = append(all, ac_07_auth_surface_analysis.All()...)
+	all = append(all, ac_08_credential_validation.All()...)
+	all = append(all, ac_09_access_establishment.All()...)
+	all = append(all, ac_10_privilege_assessment.All()...)
+	all = append(all, ac_11_lateral_reachability.All()...)
+	all = append(all, ac_12_execution_capability.All()...)
+	all = append(all, ac_13_data_exposure.All()...)
+	all = append(all, ac_14_impact_feasibility.All()...)
+	all = append(all, ac_15_external_execution.All()...)
 
 	registry := make(map[string]Technique, len(all))
 	for _, t := range all {

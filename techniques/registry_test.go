@@ -40,16 +40,16 @@ func TestRegisterAllCollectivelyCoversActionClasses(t *testing.T) {
 		}
 	}
 
-	covered := map[string]string{}
+	coveredCount := map[string]int{}
 	for _, tech := range RegisterAll() {
-		if _, exists := covered[tech.ActionClassID()]; exists {
-			t.Fatalf("multiple techniques mapped to %s without explicit justification", tech.ActionClassID())
-		}
-		covered[tech.ActionClassID()] = tech.ID()
+		coveredCount[tech.ActionClassID()]++
 	}
 	for id := range needed {
-		if _, ok := covered[id]; !ok {
+		if coveredCount[id] == 0 {
 			t.Fatalf("action class %s is not covered", id)
+		}
+		if coveredCount[id] < 5 {
+			t.Fatalf("action class %s expected at least 5 techniques, got %d", id, coveredCount[id])
 		}
 	}
 }
