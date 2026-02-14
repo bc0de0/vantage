@@ -1,6 +1,9 @@
 package reasoning
 
-import "vantage/core/evidence"
+import (
+	"vantage/core/evidence"
+	"vantage/core/state"
+)
 
 // TechniqueEffect describes expected outcomes for a technique.
 type TechniqueEffect struct {
@@ -54,4 +57,9 @@ type RankedAction struct {
 // RankedActionPlanner returns ranked next actions.
 type RankedActionPlanner interface {
 	RankedActions(query PlannerQuery) []RankedAction
+}
+
+// HypothesisExpander allows optional advisory hypothesis generation.
+type HypothesisExpander interface {
+	Expand(graph *Graph, state *state.State) ([]Hypothesis, error)
 }

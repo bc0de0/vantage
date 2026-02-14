@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"vantage/core/state"
 	"vantage/techniques"
 )
 
@@ -22,10 +23,12 @@ type Engine struct {
 	graph    *Graph
 	registry *effectRegistry
 	planner  *Planner
+	expander HypothesisExpander
+	state    *state.State
 }
 
 // NewEngine constructs a reasoning engine with default technique effects.
-func NewEngine() *Engine {
+func NewEngine(expander HypothesisExpander) *Engine {
 	registry := newEffectRegistry()
 	for _, id := range techniques.List() {
 		registry.RegisterTechniqueEffect(TechniqueEffect{
@@ -41,6 +44,7 @@ func NewEngine() *Engine {
 		graph:    NewGraph(),
 		registry: registry,
 		planner:  planner,
+		expander: expander,
 	}
 }
 
@@ -87,6 +91,12 @@ func (e *Engine) IngestEvidence(event EvidenceEvent) error {
 // PlanNextAction runs hypothesis generation, scoring, and action selection.
 func (e *Engine) PlanNextAction(query PlannerQuery) (*Decision, error) {
 	hypotheses := GenerateHypotheses(e.graph)
+	if e.expander != nil {
+		aiHypotheses, err := e.expander.Expand(e.graph, e.state)
+		if err == nil {
+			hypotheses = append(hypotheses, aiHypotheses...)
+		}
+	}
 	for _, h := range hypotheses {
 		e.graph.UpsertNode(&Node{ID: h.ID, Type: NodeTypeHypothesis, Label: h.Statement, Metadata: map[string]string{"confidence": fmt.Sprintf("%.2f", h.Confidence)}})
 		for _, support := range h.SupportingNodeIDs {
