@@ -13,6 +13,8 @@ const (
 	SmallRiskFactor = 0.4
 	// DepthFactor penalizes deeper paths to prioritize practical chains.
 	DepthFactor = 0.25
+	// ObjectiveProximityFactor boosts chains that end by producing the requested objective.
+	ObjectiveProximityFactor = 1.35
 )
 
 // TechniqueScoreWeights configures weighted multi-factor scoring.
@@ -67,6 +69,10 @@ func scorePath(steps []Hypothesis, pathClasses []ActionClass, allClasses []Actio
 			unlockBonus -
 			extremeRiskPenalty -
 			depthPenalty
+
+	if objective != "" {
+		score *= ObjectiveProximityFactor
+	}
 
 	return AttackPath{Steps: steps, Score: score, Risk: risk, Objective: objective, Valid: true}
 }

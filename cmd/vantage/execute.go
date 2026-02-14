@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"vantage/core/executor"
@@ -58,6 +59,19 @@ func buildRuntime(campaignID, target string, techniques []string) (*runtime, err
 	})
 
 	return &runtime{reasoner: reasoner, state: campaign}, nil
+}
+
+func parseObjectiveNodeType(raw string) (reasoning.NodeType, error) {
+	switch strings.ToUpper(strings.TrimSpace(raw)) {
+	case string(reasoning.NodeTypeDataExposure):
+		return reasoning.NodeTypeDataExposure, nil
+	case string(reasoning.NodeTypePrivEsc):
+		return reasoning.NodeTypePrivEsc, nil
+	case string(reasoning.NodeTypeLateralReachability):
+		return reasoning.NodeTypeLateralReachability, nil
+	default:
+		return "", fmt.Errorf("unsupported objective %q", raw)
+	}
 }
 
 var runCmd = &cobra.Command{
@@ -163,6 +177,53 @@ var simulateCmd = &cobra.Command{
 	},
 }
 
+var planCmd = &cobra.Command{
+	Use:   "plan",
+	Short: "Plan strategic attack campaigns for a requested objective",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		objectiveFlag, _ := cmd.Flags().GetString("objective")
+		maxDepth, _ := cmd.Flags().GetInt("max-depth")
+		riskTolerance, _ := cmd.Flags().GetFloat64("risk")
+		confidenceThreshold, _ := cmd.Flags().GetFloat64("confidence")
+		beamWidth, _ := cmd.Flags().GetInt("beam-width")
+
+		objective, err := parseObjectiveNodeType(objectiveFlag)
+		if err != nil {
+			return err
+		}
+
+		reasoner := reasoning.NewEngine(nil)
+		reasoner.Graph().UpsertNode(&reasoning.Node{ID: "plan-seed", Type: reasoning.NodeTypeEvidence, Label: "planner seed"})
+		campaigns, err := reasoner.PlanCampaign(reasoner.Graph(), objective, reasoning.CampaignOptions{
+			MaxDepth:            maxDepth,
+			RiskTolerance:       riskTolerance,
+			ConfidenceThreshold: confidenceThreshold,
+			BeamWidth:           beamWidth,
+		})
+		if err != nil {
+			return err
+		}
+		if len(campaigns) == 0 {
+			fmt.Println("no campaigns found")
+			return nil
+		}
+
+		limit := 5
+		if len(campaigns) < limit {
+			limit = len(campaigns)
+		}
+		for i := 0; i < limit; i++ {
+			campaign := campaigns[i]
+			stepIDs := make([]string, 0, len(campaign.Steps))
+			for _, step := range campaign.Steps {
+				stepIDs = append(stepIDs, step.ActionClassID)
+			}
+			fmt.Printf("%d. score=%.3f objective=%s attained=%t risk=%.3f confidence=%.3f steps=%s\n", i+1, campaign.Score, campaign.Objective, campaign.Objective == objective, campaign.Risk, campaign.Confidence, strings.Join(stepIDs, " -> "))
+		}
+		return nil
+	},
+}
+
 func init() {
 	runCmd.Flags().StringSlice("technique", nil, "Technique IDs (repeatable)")
 	runCmd.Flags().String("target", "", "Target identifier")
@@ -196,5 +257,12 @@ func init() {
 	_ = simulateCmd.MarkFlagRequired("technique")
 	_ = simulateCmd.MarkFlagRequired("target")
 
-	rootCmd.AddCommand(runCmd, loopCmd, graphCmd, explainCmd, simulateCmd)
+	planCmd.Flags().String("objective", "", "Objective node type (DATA_EXPOSURE, PRIV_ESC, LATERAL_REACHABILITY)")
+	planCmd.Flags().Int("max-depth", reasoning.DefaultCampaignOptions().MaxDepth, "Maximum campaign depth")
+	planCmd.Flags().Float64("risk", reasoning.DefaultCampaignOptions().RiskTolerance, "Maximum cumulative risk tolerance")
+	planCmd.Flags().Float64("confidence", reasoning.DefaultCampaignOptions().ConfidenceThreshold, "Minimum average confidence threshold")
+	planCmd.Flags().Int("beam-width", reasoning.DefaultCampaignOptions().BeamWidth, "Beam width per depth")
+	_ = planCmd.MarkFlagRequired("objective")
+
+	rootCmd.AddCommand(runCmd, loopCmd, graphCmd, explainCmd, simulateCmd, planCmd)
 }

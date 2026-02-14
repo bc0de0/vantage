@@ -117,6 +117,43 @@ The new reasoning layer keeps an in-memory operational graph and runs a determin
 
 This preserves the existing executor contract while shifting technique selection toward reasoning-first orchestration.
 
+
+## Strategic Campaign Planning API
+
+`core/reasoning` now includes deterministic campaign planning for objective-driven sequencing:
+
+- `PlanCampaign(start *Graph, objective NodeType, opts CampaignOptions) ([]Campaign, error)`
+- `CampaignOptions` supports:
+  - `MaxDepth`
+  - `RiskTolerance`
+  - `ConfidenceThreshold`
+  - `BeamWidth`
+
+Planner behavior:
+
+- Starts from the current graph snapshot (or a provided graph).
+- Uses virtual graph simulation per candidate path.
+- Keeps only candidates that can still progress toward the objective.
+- Applies pruning for risk, confidence, and monotonic feasibility progression.
+- Uses beam-search at each depth to keep only top-scoring candidates and limit combinatorial growth.
+
+Objective scoring:
+
+- Campaign/path scoring uses confidence, feasibility, unlock potential, depth, and risk penalties.
+- If the final step produces the requested objective node, score receives an `ObjectiveProximityFactor` bonus.
+
+## CLI Campaign Planning
+
+You can plan strategic campaigns directly from the CLI:
+
+```bash
+vantage plan --objective DATA_EXPOSURE
+vantage plan --objective PRIV_ESC --max-depth 7
+vantage plan --objective LATERAL_REACHABILITY --risk 0.6
+```
+
+The command prints the top 5 campaigns including score, action-class sequence, risk, confidence, and objective attainment.
+
 ## Current Development Status
 
 **Vantage is currently in the “Semantic & Selection” phase.**
