@@ -21,14 +21,15 @@ type Decision struct {
 
 // Engine orchestrates the full reasoning lifecycle over an in-memory graph.
 type Engine struct {
-	mu           sync.RWMutex
-	graph        *Graph
-	registry     *effectRegistry
-	planner      *Planner
-	expander     HypothesisExpander
-	actionBinder ActionBinder
-	state        *state.State
-	cycle        CycleConfig
+	mu               sync.RWMutex
+	graph            *Graph
+	registry         *effectRegistry
+	planner          *Planner
+	expander         HypothesisExpander
+	actionBinder     ActionBinder
+	state            *state.State
+	cycle            CycleConfig
+	attackPathConfig AttackPathConfig
 }
 
 // TechniqueExecutor executes a selected technique against a target.
@@ -62,11 +63,12 @@ func NewEngine(expander HypothesisExpander) *Engine {
 		binder.BindActionClasses(classes)
 	}
 	return &Engine{
-		graph:        NewGraph(),
-		registry:     registry,
-		planner:      planner,
-		expander:     expander,
-		actionBinder: binder,
+		graph:            NewGraph(),
+		registry:         registry,
+		planner:          planner,
+		expander:         expander,
+		actionBinder:     binder,
+		attackPathConfig: DefaultAttackPathConfig(),
 	}
 }
 
@@ -148,6 +150,14 @@ func (e *Engine) PlanNextAction(query PlannerQuery) (*Decision, error) {
 	}
 
 	ranked := e.planner.RankedActions(query)
+	if e.state != nil {
+		phase := phaseForState(e.state)
+		if phase == state.PhaseLateralMovement || phase == state.PhaseObjective || phase == state.PhaseC2 {
+			if paths, err := e.ExpandAttackPaths(e.state); err == nil && len(paths) > 0 {
+				enrichRankedActionsWithPaths(ranked, paths)
+			}
+		}
+	}
 	if len(ranked) == 0 {
 		return nil, fmt.Errorf("no ranked actions available")
 	}
