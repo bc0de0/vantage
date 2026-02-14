@@ -1,9 +1,9 @@
-id: AC-VERSION-ENUM
-name: Version and Capability Enumeration
-description: Determine versions or configurations of services
-intent_domains: [discovery, validation]
-roe_category: active_invasive
-exposure_cost: high
-operator_involvement: required
+id: AC-04
+name: Service Identification
+description: Identify exposed services without version probing
+intent_domains: [enumeration]
+roe_category: active_non_invasive
+exposure_cost: medium
+operator_involvement: optional
 preconditions: [network_reachability]
-notes: High detection likelihood
+notes: Stops before fingerprinting

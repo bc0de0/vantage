@@ -1,9 +1,0 @@
-id: AC-SERVICE-ID
-name: Service Identification
-description: Identify exposed services without version probing
-intent_domains: [discovery]
-roe_category: active_non_invasive
-exposure_cost: medium
-operator_involvement: optional
-preconditions: [network_reachability]
-notes: Stops short of fingerprinting

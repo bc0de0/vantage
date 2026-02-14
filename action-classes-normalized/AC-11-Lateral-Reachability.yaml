@@ -1,9 +1,9 @@
-id: AC-EXEC-VALIDATE
-name: Execution Capability Validation
-description: Validate ability to execute commands or code
+id: AC-11
+name: Lateral Reachability Assessment
+description: Assess reachability to adjacent assets
 intent_domains: [validation]
-roe_category: active_invasive
-exposure_cost: high
-operator_involvement: required
+roe_category: active_non_invasive
+exposure_cost: medium
+operator_involvement: optional
 preconditions: [access_established]
-notes: No payload delivery
+notes: No movement

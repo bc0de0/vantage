@@ -1,7 +1,7 @@
-id: AC-PROTOCOL-META
+id: AC-05
 name: Protocol Metadata Inspection
 description: Inspect protocol-level metadata without authentication
-intent_domains: [discovery]
+intent_domains: [enumeration]
 roe_category: active_non_invasive
 exposure_cost: medium
 operator_involvement: optional

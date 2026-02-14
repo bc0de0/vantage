@@ -1,9 +1,0 @@
-id: AC-PRIV-ASSESS
-name: Privilege Assessment
-description: Assess level of permissions granted
-intent_domains: [validation]
-roe_category: active_invasive
-exposure_cost: medium
-operator_involvement: optional
-preconditions: [access_established]
-notes: Read-only assessment
