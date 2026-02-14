@@ -148,22 +148,6 @@ func explorePathTree(g *Graph, st *state.State, cfg AttackPathConfig, classes []
 	}
 }
 
-func scorePath(steps []Hypothesis, classes []ActionClass, objective NodeType, cfg AttackPathConfig) AttackPath {
-	impact := 0.0
-	risk := 0.0
-	confidence := 0.0
-	for i, ac := range classes {
-		impact += ac.ImpactWeight
-		risk += ac.RiskWeight
-		if i < len(steps) {
-			confidence += steps[i].Confidence
-		}
-	}
-	depthPenalty := float64(len(steps)) * cfg.DepthPenalty
-	score := impact - risk - depthPenalty + (confidence * cfg.ConfidenceWeight)
-	return AttackPath{Steps: steps, Score: score, Risk: risk, Objective: objective, Valid: true}
-}
-
 func findObjective(objectiveNodeTypes []NodeType, produced []NodeType) (NodeType, bool) {
 	for _, objective := range objectiveNodeTypes {
 		for _, p := range produced {

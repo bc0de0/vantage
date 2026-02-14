@@ -153,7 +153,7 @@ func TestFullPathExpansionWithNormalizedActionClasses(t *testing.T) {
 	}
 	// Score richness indicates discriminative reasoning quality: useful engines
 	// should rank paths differently instead of collapsing to uniform scores.
-	t.Logf("Score range: %.2f - %.2f", scoreMin, scoreMax)
+	t.Logf("Non-linear score range: %.3f - %.3f (spread %.3f)", scoreMin, scoreMax, scoreMax-scoreMin)
 	if scoreMax <= scoreMin {
 		t.Fatalf("expected non-zero score variance, got min %.2f max %.2f", scoreMin, scoreMax)
 	}
