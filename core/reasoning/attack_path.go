@@ -40,6 +40,26 @@ func DefaultAttackPathConfig() AttackPathConfig {
 	}
 }
 
+// CampaignProjectionState captures per-candidate virtual graph and phase progress during campaign projection.
+type CampaignProjectionState struct {
+	Graph         *Graph
+	PhaseProgress []state.OperationPhase
+}
+
+func projectCampaignState(base CampaignProjectionState, ac ActionClass) (CampaignProjectionState, error) {
+	next := CampaignProjectionState{Graph: cloneGraph(base.Graph), PhaseProgress: append(append([]state.OperationPhase(nil), base.PhaseProgress...), ac.Phase)}
+	if next.Graph == nil {
+		next.Graph = NewGraph()
+	}
+	if !MatchPatterns(next.Graph, ac.Preconditions) {
+		return CampaignProjectionState{}, fmt.Errorf("preconditions do not match")
+	}
+	if err := simulateAction(next.Graph, ac); err != nil {
+		return CampaignProjectionState{}, err
+	}
+	return next, nil
+}
+
 // ExpandAttackPaths computes feasible, scored attack paths from the current graph using virtual graph simulation.
 func (e *Engine) ExpandAttackPaths(st *state.State) ([]AttackPath, error) {
 	if e == nil || e.graph == nil {

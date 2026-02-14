@@ -20,6 +20,12 @@ const (
 	NodeTypeAttackPath NodeType = "attack_path"
 	// NodeTypeTechnique represents a technique option.
 	NodeTypeTechnique NodeType = "technique"
+	// NodeTypeDataExposure represents attainment of sensitive data exposure objectives.
+	NodeTypeDataExposure NodeType = "DATA_EXPOSURE"
+	// NodeTypePrivEsc represents privilege escalation objective attainment.
+	NodeTypePrivEsc NodeType = "PRIV_ESC"
+	// NodeTypeLateralReachability represents validated lateral movement reachability.
+	NodeTypeLateralReachability NodeType = "LATERAL_REACHABILITY"
 )
 
 // Node stores a fact in the operational reasoning graph.
