@@ -12,6 +12,7 @@ import (
 	"vantage/core/evidence"
 	"vantage/core/exposure"
 	"vantage/core/intent"
+	"vantage/core/reasoning"
 	"vantage/core/roe"
 	"vantage/core/state"
 	"vantage/techniques"
@@ -54,6 +55,9 @@ type Engine struct {
 	// exposure tracks cumulative detection risk.
 	// Exposure is conservative and monotonic.
 	exposure *exposure.Tracker
+
+	// reasoner provides stateful action ranking while execution integration evolves.
+	reasoner *reasoning.Engine
 }
 
 // -----------------------------------------------------------------------------
@@ -93,6 +97,7 @@ func New(
 		contract: contract,
 		campaign: campaign,
 		exposure: exposureTracker,
+		reasoner: reasoning.NewEngine(),
 	}, nil
 }
 
@@ -178,8 +183,19 @@ func (e *Engine) Run(
 	// 4. TECHNIQUE RESOLUTION (DECISION ONLY)
 	// -----------------------------------------------------------------
 
-	// Resolve technique from closed-world registry
-	technique, err := techniques.Get(techniqueID)
+	decision, err := e.reasoner.PlanNextAction(reasoning.PlannerQuery{
+		Target:             target,
+		AllowedTechniques:  []string{techniqueID},
+		CurrentTechniqueID: techniqueID,
+		TopN:               1,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Resolve technique from closed-world registry.
+	// Reasoner picks the candidate while executor keeps final validation.
+	technique, err := techniques.Get(decision.Selected.TechniqueID)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +204,7 @@ func (e *Engine) Run(
 	// They only resolve admissible Action Classes.
 	resolution, resolveErr := technique.Resolve(
 		techniques.ResolveInput{
-			TechniqueID:          techniqueID,
+			TechniqueID:          decision.Selected.TechniqueID,
 			AllowedIntentDomains: []string{}, // v0.x placeholder
 			AllowedROECategories: []string{}, // v0.x static ROE
 			ExposureBudget:       e.exposure.Level().String(),
@@ -273,7 +289,7 @@ func (e *Engine) Run(
 	artifact := &evidence.Artifact{
 		ArtifactID:    uuid.NewString(),
 		CampaignID:    e.contract.CampaignID,
-		TechniqueID:   techniqueID,
+		TechniqueID:   decision.Selected.TechniqueID,
 		Target:        target,
 		ExecutedAt:    startedAt,
 		Success:       execErr == nil,
@@ -285,6 +301,14 @@ func (e *Engine) Run(
 	if err := artifact.Sign(); err != nil {
 		return nil, fmt.Errorf("evidence signing failed: %w", err)
 	}
+
+	_ = e.reasoner.IngestEvidence(reasoning.EvidenceEvent{
+		TechniqueID: artifact.TechniqueID,
+		Target:      artifact.Target,
+		Success:     artifact.Success,
+		Output:      artifact.Output,
+		Artifact:    artifact,
+	})
 
 	// -----------------------------------------------------------------
 	// 9. FINAL OUTCOME
