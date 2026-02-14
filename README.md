@@ -103,6 +103,20 @@ Action remains a human responsibility, executed using external tools and workflo
 
 ---
 
+
+## Reasoning Lifecycle (Current `core/reasoning` Layer)
+
+The new reasoning layer keeps an in-memory operational graph and runs a deterministic cycle before execution:
+
+1. **Evidence ingest** from executor artifacts (`EvidenceEvent`) updates evidence nodes.
+2. **Knowledge graph update** links observed facts, hypotheses, and candidate techniques.
+3. **Hypothesis generation** derives possible follow-on paths from supporting evidence.
+4. **Technique scoring** ranks options using weighted impact, risk, and stealth factors.
+5. **Planner selection** returns the highest ranked next action plus ordered alternatives.
+6. **Structured decision output** is returned to the executor, which still enforces ROE/intent and resolves techniques.
+
+This preserves the existing executor contract while shifting technique selection toward reasoning-first orchestration.
+
 ## Current Development Status
 
 **Vantage is currently in the “Semantic & Selection” phase.**
