@@ -1,11 +1,13 @@
 package reasoning
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"sync"
 	"time"
 
+	"vantage/core/evidence"
 	"vantage/core/state"
 	"vantage/techniques"
 )
@@ -25,6 +27,20 @@ type Engine struct {
 	planner  *Planner
 	expander HypothesisExpander
 	state    *state.State
+	cycle    CycleConfig
+}
+
+// TechniqueExecutor executes a selected technique against a target.
+type TechniqueExecutor interface {
+	Run(ctx context.Context, techniqueID string, target string) (*evidence.Artifact, error)
+}
+
+// CycleConfig holds execution wiring for a full reasoning cycle.
+type CycleConfig struct {
+	Target            string
+	AllowedTechniques []string
+	Executor          TechniqueExecutor
+	Timeout           time.Duration
 }
 
 // NewEngine constructs a reasoning engine with default technique effects.
@@ -122,6 +138,60 @@ func (e *Engine) PlanNextAction(query PlannerQuery) (*Decision, error) {
 // DOT returns Graphviz DOT output for the current reasoning graph.
 func (e *Engine) DOT() string {
 	return e.graph.ToDOT()
+}
+
+// ConfigureCycle configures runtime dependencies for RunCycle.
+func (e *Engine) ConfigureCycle(cfg CycleConfig) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.cycle = cfg
+}
+
+// RunCycle executes one deterministic reasoning + execution cycle.
+func (e *Engine) RunCycle(state *state.State) (*Decision, error) {
+	e.mu.Lock()
+	e.state = state
+	cfg := e.cycle
+	e.mu.Unlock()
+
+	if cfg.Target == "" {
+		return nil, fmt.Errorf("run cycle target is required")
+	}
+	if cfg.Executor == nil {
+		return nil, fmt.Errorf("run cycle executor is required")
+	}
+
+	decision, err := e.PlanNextAction(PlannerQuery{
+		Target:            cfg.Target,
+		AllowedTechniques: cfg.AllowedTechniques,
+		TopN:              1,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	timeout := cfg.Timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	artifact, execErr := cfg.Executor.Run(ctx, decision.Selected.TechniqueID, cfg.Target)
+	if artifact != nil {
+		_ = e.IngestEvidence(EvidenceEvent{
+			TechniqueID: artifact.TechniqueID,
+			Target:      artifact.Target,
+			Success:     artifact.Success,
+			Output:      artifact.Output,
+			Artifact:    artifact,
+		})
+	}
+
+	if execErr != nil {
+		return decision, execErr
+	}
+	return decision, nil
 }
 
 type effectRegistry struct {

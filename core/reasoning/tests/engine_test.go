@@ -1,10 +1,12 @@
 package tests
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 
+	"vantage/core/evidence"
 	"vantage/core/reasoning"
 	"vantage/core/state"
 )
@@ -21,6 +23,21 @@ type failingExpander struct{}
 
 func (failingExpander) Expand(_ *reasoning.Graph, _ *state.State) ([]reasoning.Hypothesis, error) {
 	return nil, errors.New("ai unavailable")
+}
+
+type executorStub struct {
+	artifact *evidence.Artifact
+	err      error
+	calls    int
+	lastTech string
+	lastTgt  string
+}
+
+func (s *executorStub) Run(_ context.Context, techniqueID string, target string) (*evidence.Artifact, error) {
+	s.calls++
+	s.lastTech = techniqueID
+	s.lastTgt = target
+	return s.artifact, s.err
 }
 
 func TestReasoningCyclePlansHighestScore(t *testing.T) {
@@ -103,5 +120,54 @@ func TestReasoningEngineAIFailureDoesNotBreakCycle(t *testing.T) {
 	}
 	if decision.Selected.TechniqueID != "T-1" {
 		t.Fatalf("expected deterministic selection, got %s", decision.Selected.TechniqueID)
+	}
+}
+
+func TestRunCycleInvokesExecutorAndIngestsEvidence(t *testing.T) {
+	re := reasoning.NewEngine(nil)
+	re.RegisterTechniqueEffect(reasoning.TechniqueEffect{TechniqueID: "T-1", Impact: 0.9, Risk: 0.1, Stealth: 0.8})
+
+	s := &executorStub{artifact: &evidence.Artifact{TechniqueID: "T-1", Target: "host-1", Success: true}}
+	re.ConfigureCycle(reasoning.CycleConfig{Target: "host-1", AllowedTechniques: []string{"T-1"}, Executor: s})
+
+	st, err := state.New("campaign-1")
+	if err != nil {
+		t.Fatalf("state new: %v", err)
+	}
+	decision, err := re.RunCycle(st)
+	if err != nil {
+		t.Fatalf("run cycle: %v", err)
+	}
+	if decision.Selected.TechniqueID != "T-1" {
+		t.Fatalf("unexpected selected technique: %s", decision.Selected.TechniqueID)
+	}
+	if s.calls != 1 {
+		t.Fatalf("expected executor call count 1, got %d", s.calls)
+	}
+	if len(re.Graph().NodesByType(reasoning.NodeTypeEvidence)) == 0 {
+		t.Fatalf("expected evidence node to be ingested")
+	}
+}
+
+func TestRunCycleReturnsDecisionAndExecutorError(t *testing.T) {
+	re := reasoning.NewEngine(nil)
+	re.RegisterTechniqueEffect(reasoning.TechniqueEffect{TechniqueID: "T-1", Impact: 0.9, Risk: 0.1, Stealth: 0.8})
+
+	s := &executorStub{err: errors.New("execution failed")}
+	re.ConfigureCycle(reasoning.CycleConfig{Target: "host-1", AllowedTechniques: []string{"T-1"}, Executor: s})
+
+	st, err := state.New("campaign-2")
+	if err != nil {
+		t.Fatalf("state new: %v", err)
+	}
+	decision, runErr := re.RunCycle(st)
+	if runErr == nil {
+		t.Fatalf("expected run cycle error")
+	}
+	if decision == nil {
+		t.Fatalf("expected decision even on executor error")
+	}
+	if s.calls != 1 {
+		t.Fatalf("expected executor call count 1, got %d", s.calls)
 	}
 }
