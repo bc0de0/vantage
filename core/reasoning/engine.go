@@ -9,7 +9,6 @@ import (
 
 	"vantage/core/evidence"
 	"vantage/core/state"
-	"vantage/techniques"
 )
 
 // Decision is the structured planning output for executor consumption.
@@ -48,15 +47,6 @@ type CycleConfig struct {
 // NewEngine constructs a reasoning engine with default technique effects.
 func NewEngine(expander HypothesisExpander) *Engine {
 	registry := newEffectRegistry()
-	for _, id := range techniques.List() {
-		registry.RegisterTechniqueEffect(TechniqueEffect{
-			TechniqueID: id,
-			Impact:      0.6,
-			Risk:        0.4,
-			Stealth:     0.5,
-			Produces:    []string{"generic_evidence"},
-		})
-	}
 	planner := NewPlanner(registry, DefaultTechniqueScoreWeights())
 	binder := NewDefaultActionBinder()
 	if classes, err := LoadActionClassesFromDir("action-classes-normalized"); err == nil {
@@ -149,7 +139,13 @@ func (e *Engine) PlanNextAction(query PlannerQuery) (*Decision, error) {
 		}
 	}
 
-	ranked := e.planner.RankedActions(query)
+	var ranked []RankedAction
+	if binder, ok := e.actionBinder.(*DefaultActionBinder); ok {
+		ranked = e.planner.RankedActionsForHypotheses(e.graph, query.Target, hypotheses, binder.ActionClass, query.TopN)
+	}
+	if len(ranked) == 0 {
+		ranked = e.planner.RankedActions(query)
+	}
 	if e.state != nil {
 		phase := phaseForState(e.state)
 		if phase == state.PhaseLateralMovement || phase == state.PhaseObjective || phase == state.PhaseC2 {

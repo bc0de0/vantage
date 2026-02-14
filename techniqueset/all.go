@@ -1,19 +1,15 @@
 package techniqueset
 
-// ============================================================================
-// TECHNIQUE SET — CLOSED WORLD DECLARATION
-//
-// Importing this package registers ALL supported techniques
-// via init() side effects.
-//
-// RULES:
-// - No logic
-// - No exports
-// - No imports except blank technique imports
-//
-// This package MUST ONLY be imported by binaries (cmd/*).
-// ============================================================================
+import "vantage/techniques"
 
-import (
-	_ "vantage/techniques/t1595"
-)
+// ForActionClass returns all registered techniques bound to the provided action class ID.
+func ForActionClass(actionClassID string) []techniques.Technique {
+	all := techniques.RegisterAll()
+	out := make([]techniques.Technique, 0)
+	for _, t := range all {
+		if t.ActionClassID() == actionClassID {
+			out = append(out, t)
+		}
+	}
+	return out
+}
