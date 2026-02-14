@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -99,16 +100,27 @@ func TestFullPathExpansionWithNormalizedActionClasses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expand attack paths: %v", err)
 	}
-	if len(paths) == 0 {
-		t.Fatalf("expected at least one expanded path")
+	// Breadth matters for cognitive validation: strong reasoning should surface
+	// multiple distinct options, not a single brittle chain.
+	t.Logf("Total paths found: %d", len(paths))
+	if len(paths) < 2 {
+		t.Fatalf("expected at least two expanded paths for breadth validation, got %d", len(paths))
 	}
 
-	longest := 0
+	maxDepth := 0
+	scoreMin := math.MaxFloat64
+	scoreMax := -math.MaxFloat64
 	scoreSet := map[float64]struct{}{}
 	for _, p := range paths {
+		if p.Score < scoreMin {
+			scoreMin = p.Score
+		}
+		if p.Score > scoreMax {
+			scoreMax = p.Score
+		}
 		scoreSet[p.Score] = struct{}{}
-		if len(p.Steps) > longest {
-			longest = len(p.Steps)
+		if len(p.Steps) > maxDepth {
+			maxDepth = len(p.Steps)
 		}
 
 		seen := map[string]struct{}{}
@@ -130,8 +142,20 @@ func TestFullPathExpansionWithNormalizedActionClasses(t *testing.T) {
 			}
 		}
 	}
-	if longest < 3 {
-		t.Fatalf("expected at least one path with length >= 3, got %d", longest)
+	// Depth highlights whether reasoning is shallow (single-hop) or whether it can
+	// build multi-step causal chains toward the objective.
+	t.Logf("Max depth: %d", maxDepth)
+	if maxDepth < 2 {
+		t.Fatalf("expected max path depth >= 2, got %d", maxDepth)
+	}
+	if maxDepth < 3 {
+		t.Fatalf("expected at least one path with length >= 3, got %d", maxDepth)
+	}
+	// Score richness indicates discriminative reasoning quality: useful engines
+	// should rank paths differently instead of collapsing to uniform scores.
+	t.Logf("Score range: %.2f - %.2f", scoreMin, scoreMax)
+	if scoreMax <= scoreMin {
+		t.Fatalf("expected non-zero score variance, got min %.2f max %.2f", scoreMin, scoreMax)
 	}
 	if len(scoreSet) < 2 {
 		t.Fatalf("expected non-uniform path scores, got %d unique score(s)", len(scoreSet))
