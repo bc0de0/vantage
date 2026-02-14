@@ -2,99 +2,50 @@ package techniques
 
 import (
 	"fmt"
-	"sync"
+
+	"vantage/techniques/ac_01_passive_observation"
+	"vantage/techniques/ac_02_active_surface_discovery"
+	"vantage/techniques/ac_03_reachability_validation"
+	"vantage/techniques/ac_04_service_identification"
+	"vantage/techniques/ac_05_protocol_metadata"
+	"vantage/techniques/ac_06_version_enumeration"
+	"vantage/techniques/ac_07_auth_surface_analysis"
+	"vantage/techniques/ac_08_credential_validation"
+	"vantage/techniques/ac_09_access_establishment"
+	"vantage/techniques/ac_10_privilege_assessment"
+	"vantage/techniques/ac_11_lateral_reachability"
+	"vantage/techniques/ac_12_execution_capability"
+	"vantage/techniques/ac_13_data_exposure"
+	"vantage/techniques/ac_14_impact_feasibility"
+	"vantage/techniques/ac_15_external_execution"
 )
 
-// ============================================================================
-// TECHNIQUE REGISTRY — SECURITY CRITICAL COMPONENT
-//
-// This file defines the ONLY authoritative registry of techniques in VANTAGE.
-//
-// GUARANTEES:
-// - Closed world (no dynamic discovery)
-// - Immutable after init()
-// - Fail-fast on programmer error
-// - Deterministic lookup
-//
-// If a technique is not registered here at process startup,
-// it does not exist — structurally or legally.
-// ============================================================================
-
-var (
-	// registry maps canonical Technique IDs to implementations.
-	// It is intentionally unexported.
-	registry = make(map[string]Technique)
-
-	// registryMu protects registry during init-time registration.
-	// Runtime writes are forbidden by doctrine.
-	registryMu sync.RWMutex
-)
-
-// Register registers a Technique implementation.
-//
-// HARD RULES (ENFORCED):
-// - MUST be called only from init()
-// - MUST NOT be called conditionally
-// - MUST NOT be called at runtime
-//
-// Any violation indicates a programmer error and causes panic.
-func Register(t Technique) {
-	if t == nil {
-		panic("techniques: attempted to register nil Technique")
+// RegisterAll returns the complete static technique set keyed by Technique.ID().
+func RegisterAll() map[string]Technique {
+	all := []Technique{
+		ac_01_passive_observation.PassiveDNSCollection{},
+		ac_02_active_surface_discovery.SurfaceProbe{},
+		ac_03_reachability_validation.ReachabilityValidator{},
+		ac_04_service_identification.ServiceIdentifier{},
+		ac_05_protocol_metadata.ProtocolMetadataInspector{},
+		ac_06_version_enumeration.VersionEnumerator{},
+		ac_07_auth_surface_analysis.AuthSurfaceAnalyzer{},
+		ac_08_credential_validation.CredentialValidator{},
+		ac_09_access_establishment.AccessEstablisher{},
+		ac_10_privilege_assessment.PrivilegeAssessor{},
+		ac_11_lateral_reachability.LateralReachabilityAnalyzer{},
+		ac_12_execution_capability.ExecutionCapabilityValidator{},
+		ac_13_data_exposure.DataExposureVerifier{},
+		ac_14_impact_feasibility.ImpactFeasibilityAssessor{},
+		ac_15_external_execution.ExternalExecutionCoordinator{},
 	}
 
-	id := t.ID()
-	if id == "" {
-		panic("techniques: attempted to register Technique with empty ID")
+	registry := make(map[string]Technique, len(all))
+	for _, t := range all {
+		if _, exists := registry[t.ID()]; exists {
+			panic(fmt.Sprintf("duplicate technique id: %s", t.ID()))
+		}
+		registry[t.ID()] = t
 	}
-
-	registryMu.Lock()
-	defer registryMu.Unlock()
-
-	if _, exists := registry[id]; exists {
-		panic("techniques: duplicate technique registration: " + id)
-	}
-
-	registry[id] = t
-}
-
-// Get retrieves a registered Technique by ID.
-//
-// BEHAVIOR:
-// - Returns error if technique does not exist
-// - Never panics for missing techniques
-//
-// Missing techniques are an operator/configuration error,
-// not a programmer error.
-func Get(id string) (Technique, error) {
-	if id == "" {
-		return nil, fmt.Errorf("techniques: empty technique ID")
-	}
-
-	registryMu.RLock()
-	defer registryMu.RUnlock()
-
-	t, ok := registry[id]
-	if !ok {
-		return nil, fmt.Errorf("techniques: technique not registered: %s", id)
-	}
-
-	return t, nil
-}
-
-// List returns all registered technique IDs.
-//
-// Intended for:
-// - CLI validation
-// - Intent verification
-// - Audit tooling
-func List() []string {
-	registryMu.RLock()
-	defer registryMu.RUnlock()
-
-	out := make([]string, 0, len(registry))
-	for id := range registry {
-		out = append(out, id)
-	}
-	return out
+	return registry
 }
