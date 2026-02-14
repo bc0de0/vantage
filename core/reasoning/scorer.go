@@ -1,5 +1,10 @@
 package reasoning
 
+import (
+	"fmt"
+	"sort"
+)
+
 const (
 	// ConfidenceWeight emphasizes confidence-backed paths.
 	ConfidenceWeight = 0.8
@@ -31,10 +36,14 @@ func ScoreTechnique(effect TechniqueEffect, weights TechniqueScoreWeights) float
 	if weights == (TechniqueScoreWeights{}) {
 		weights = DefaultTechniqueScoreWeights()
 	}
-	return (effect.Impact * weights.ImpactWeight) + ((1 - effect.Risk) * weights.RiskWeight) + (effect.Stealth * weights.StealthWeight)
+	return (effect.Impact * weights.ImpactWeight) + ((1-effect.Risk)*weights.RiskWeight) + (effect.Stealth * weights.StealthWeight)
 }
 
 func scorePath(steps []Hypothesis, pathClasses []ActionClass, allClasses []ActionClass, objective NodeType, cfg AttackPathConfig) AttackPath {
+	return scorePathWithCache(steps, pathClasses, allClasses, objective, cfg, nil, "")
+}
+
+func scorePathWithCache(steps []Hypothesis, pathClasses []ActionClass, allClasses []ActionClass, objective NodeType, cfg AttackPathConfig, unlockCache map[string]float64, graphHash string) AttackPath {
 	totalConfidence := 0.0
 	risk := 0.0
 	for i := range pathClasses {
@@ -49,7 +58,7 @@ func scorePath(steps []Hypothesis, pathClasses []ActionClass, allClasses []Actio
 		averageConfidence = totalConfidence / float64(len(steps))
 	}
 	feasibilityScore := averageFeasibility(pathClasses)
-	unlockBonus := unlockedActionCount(pathClasses, allClasses) * UnlockFactor
+	unlockBonus := unlockedActionCount(pathClasses, allClasses, unlockCache, graphHash) * UnlockFactor
 	score := (averageConfidence * ConfidenceWeight) + (feasibilityScore * FeasibilityWeight) + unlockBonus - riskPenalty(risk) - (float64(len(steps)) * DepthFactor)
 
 	proximity := objectiveProximity(pathClasses, objective, cfg)
@@ -102,7 +111,7 @@ func averageFeasibility(path []ActionClass) float64 { /* unchanged */
 	return totalRatio / float64(len(path))
 }
 
-func unlockedActionCount(path []ActionClass, universe []ActionClass) float64 {
+func unlockedActionCount(path []ActionClass, universe []ActionClass, cache map[string]float64, graphHash string) float64 {
 	if len(path) == 0 || len(universe) == 0 {
 		return 0
 	}
@@ -111,6 +120,13 @@ func unlockedActionCount(path []ActionClass, universe []ActionClass) float64 {
 	selected := make(map[string]struct{}, len(path))
 	for _, ac := range path {
 		selected[ac.ID] = struct{}{}
+	}
+	cacheKey := ""
+	if cache != nil {
+		cacheKey = fmt.Sprintf("%s|%s|%s", graphHash, availabilityHash(beforeNodes, beforeEdges), availabilityHash(afterNodes, afterEdges))
+		if v, ok := cache[cacheKey]; ok {
+			return v
+		}
 	}
 	unlocked := 0
 	for _, candidate := range universe {
@@ -123,7 +139,24 @@ func unlockedActionCount(path []ActionClass, universe []ActionClass) float64 {
 			unlocked++
 		}
 	}
+	if cache != nil {
+		cache[cacheKey] = float64(unlocked)
+	}
 	return float64(unlocked)
+}
+
+func availabilityHash(nodes map[NodeType]struct{}, edges map[EdgeType]struct{}) string {
+	nodeKeys := make([]string, 0, len(nodes))
+	for n := range nodes {
+		nodeKeys = append(nodeKeys, string(n))
+	}
+	sort.Strings(nodeKeys)
+	edgeKeys := make([]string, 0, len(edges))
+	for e := range edges {
+		edgeKeys = append(edgeKeys, string(e))
+	}
+	sort.Strings(edgeKeys)
+	return fmt.Sprintf("n=%v|e=%v", nodeKeys, edgeKeys)
 }
 
 func riskPenalty(risk float64) float64 {

@@ -37,18 +37,11 @@ type CampaignOptions struct {
 
 // DefaultCampaignOptions returns conservative deterministic planning defaults.
 func DefaultCampaignOptions() CampaignOptions {
-	return CampaignOptions{
-		MaxDepth:            5,
-		RiskTolerance:       2.0,
-		ConfidenceThreshold: 0.55,
-		BeamWidth:           25,
-		TopN:                10,
-		ObjectiveBiasWeight: 0.35,
-	}
+	return CampaignOptions{MaxDepth: 5, RiskTolerance: 2.0, ConfidenceThreshold: 0.55, BeamWidth: 25, TopN: 10, ObjectiveBiasWeight: 0.35}
 }
 
 type campaignCandidate struct {
-	graph            *Graph
+	graph            *graphSnapshot
 	actions          []ActionClass
 	steps            []AttackStep
 	score            float64
@@ -74,25 +67,26 @@ func (e *Engine) PlanCampaign(objective NodeType, opts CampaignOptions) ([]Campa
 		return nil, nil
 	}
 	sort.Slice(classes, func(i, j int) bool { return classes[i].ID < classes[j].ID })
-
 	if e.graph == nil {
 		return nil, fmt.Errorf("start graph is nil")
 	}
 
-	initial := campaignCandidate{graph: cloneGraph(e.graph)}
-	beam := []campaignCandidate{initial}
+	index := buildActionClassIndex(classes)
+	unlockCache := map[string]float64{}
+	beam := []campaignCandidate{{graph: snapshotFromGraph(e.graph)}}
 	currentPhase := phaseForState(e.state)
 	seen := map[string]struct{}{}
 	campaigns := make([]Campaign, 0)
 
 	for depth := 1; depth <= cfg.MaxDepth; depth++ {
+		beam = pruneCampaignBeam(beam, cfg.BeamWidth)
 		nextBeam := make([]campaignCandidate, 0, len(beam)*len(classes))
 		for _, candidate := range beam {
-			for _, action := range classes {
-				if !campaignPhaseAllowed(currentPhase, candidate.phaseProgress, action.Phase) {
+			for _, action := range index.eligible(candidate.graph) {
+				if !campaignPhaseAllowed(currentPhase, candidate.phaseProgress, action.Phase) || !matchSnapshotPatterns(candidate.graph, action.Preconditions) {
 					continue
 				}
-				projected, ok := projectCampaignCandidate(candidate, action, classes, objective, cfg)
+				projected, ok := projectCampaignCandidate(candidate, action, classes, objective, cfg, unlockCache)
 				if !ok {
 					continue
 				}
@@ -107,16 +101,7 @@ func (e *Engine) PlanCampaign(objective NodeType, opts CampaignOptions) ([]Campa
 				}
 			}
 		}
-
-		sort.Slice(nextBeam, func(i, j int) bool {
-			if nextBeam[i].score == nextBeam[j].score {
-				return candidatePathKey(nextBeam[i]) < candidatePathKey(nextBeam[j])
-			}
-			return nextBeam[i].score > nextBeam[j].score
-		})
-		if len(nextBeam) > cfg.BeamWidth {
-			nextBeam = nextBeam[:cfg.BeamWidth]
-		}
+		nextBeam = pruneCampaignBeam(nextBeam, cfg.BeamWidth)
 		if len(nextBeam) == 0 {
 			break
 		}
@@ -133,6 +118,19 @@ func (e *Engine) PlanCampaign(objective NodeType, opts CampaignOptions) ([]Campa
 		campaigns = campaigns[:cfg.TopN]
 	}
 	return campaigns, nil
+}
+
+func pruneCampaignBeam(beam []campaignCandidate, width int) []campaignCandidate {
+	sort.Slice(beam, func(i, j int) bool {
+		if beam[i].score == beam[j].score {
+			return candidatePathKey(beam[i]) < candidatePathKey(beam[j])
+		}
+		return beam[i].score > beam[j].score
+	})
+	if len(beam) > width {
+		return beam[:width]
+	}
+	return beam
 }
 
 func normalizeCampaignOptions(opts CampaignOptions) CampaignOptions {
@@ -159,7 +157,7 @@ func normalizeCampaignOptions(opts CampaignOptions) CampaignOptions {
 	return cfg
 }
 
-func projectCampaignCandidate(candidate campaignCandidate, action ActionClass, classes []ActionClass, objective NodeType, cfg CampaignOptions) (campaignCandidate, bool) {
+func projectCampaignCandidate(candidate campaignCandidate, action ActionClass, classes []ActionClass, objective NodeType, cfg CampaignOptions, unlockCache map[string]float64) (campaignCandidate, bool) {
 	proj, err := projectCampaignState(CampaignProjectionState{Graph: candidate.graph, PhaseProgress: candidate.phaseProgress}, action)
 	if err != nil {
 		return campaignCandidate{}, false
@@ -171,12 +169,10 @@ func projectCampaignCandidate(candidate campaignCandidate, action ActionClass, c
 	}
 
 	steps := append(append([]AttackStep(nil), candidate.steps...), attackStepForAction(action, len(actions)))
-	hypSteps := hypothesesFromAttackSteps(steps)
 	confidence := averageCampaignConfidence(steps)
 	if confidence < cfg.ConfidenceThreshold {
 		return campaignCandidate{}, false
 	}
-
 	feasibility := averageFeasibility(actions)
 	if len(candidate.steps) > 0 && feasibility+1e-9 < candidate.feasibility {
 		return campaignCandidate{}, false
@@ -185,20 +181,11 @@ func projectCampaignCandidate(candidate campaignCandidate, action ActionClass, c
 	reached := producesNode(action.ProducesNodes, objective)
 	distance := objectiveDistance(actions, objective)
 	proximity := objectiveProximityScore(distance, action, objective)
-	scored := scorePath(hypSteps, actions, classes, nodeTypeIf(reached, objective), DefaultAttackPathConfig())
+	hypSteps := hypothesesFromAttackSteps(steps)
+	scored := scorePathWithCache(hypSteps, actions, classes, nodeTypeIf(reached, objective), DefaultAttackPathConfig(), unlockCache, proj.Graph.hash())
 	scored.Score += proximity * cfg.ObjectiveBiasWeight
 
-	return campaignCandidate{
-		graph:            proj.Graph,
-		actions:          actions,
-		steps:            steps,
-		score:            scored.Score,
-		risk:             risk,
-		confidence:       confidence,
-		objectiveReached: reached,
-		phaseProgress:    proj.PhaseProgress,
-		feasibility:      feasibility,
-	}, true
+	return campaignCandidate{graph: proj.Graph, actions: actions, steps: steps, score: scored.Score, risk: risk, confidence: confidence, objectiveReached: reached, phaseProgress: proj.PhaseProgress, feasibility: feasibility}, true
 }
 
 func objectiveDistance(actions []ActionClass, objective NodeType) int {

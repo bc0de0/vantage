@@ -32,7 +32,7 @@ func TestPlanCampaignStress1000Techniques(t *testing.T) {
 		t.Fatalf("plan campaign: %v", err)
 	}
 	dur := time.Since(start)
-	threshold := 10 * time.Second
+	threshold := 5 * time.Second
 	if dur > threshold {
 		t.Fatalf("runtime exceeded threshold %v: %v", threshold, dur)
 	}

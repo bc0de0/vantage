@@ -3,6 +3,7 @@ package reasoning
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"vantage/core/state"
 )
@@ -45,28 +46,169 @@ func DefaultAttackPathConfig() AttackPathConfig {
 
 // CampaignProjectionState captures per-candidate virtual graph and phase progress during campaign projection.
 type CampaignProjectionState struct {
-	Graph         *Graph
+	Graph         *graphSnapshot
 	PhaseProgress []state.OperationPhase
 }
 
 type attackCandidate struct {
-	graph *Graph
+	graph *graphSnapshot
 	stack []ActionClass
 	score float64
 	key   string
 }
 
-func projectCampaignState(base CampaignProjectionState, ac ActionClass) (CampaignProjectionState, error) {
-	next := CampaignProjectionState{Graph: cloneGraph(base.Graph), PhaseProgress: append(append([]state.OperationPhase(nil), base.PhaseProgress...), ac.Phase)}
-	if next.Graph == nil {
-		next.Graph = NewGraph()
+type graphSnapshot struct {
+	nodeCounts map[NodeType]int
+	edgeCounts map[EdgeType]int
+}
+
+type actionClassIndex struct {
+	byRequiredNode map[NodeType][]ActionClass
+	withoutReq     []ActionClass
+}
+
+func snapshotFromGraph(g *Graph) *graphSnapshot {
+	s := &graphSnapshot{nodeCounts: map[NodeType]int{}, edgeCounts: map[EdgeType]int{}}
+	if g == nil {
+		return s
 	}
-	if !MatchPatterns(next.Graph, ac.Preconditions) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	for _, n := range g.nodes {
+		s.nodeCounts[n.Type]++
+	}
+	for _, e := range g.edges {
+		s.edgeCounts[e.Type]++
+	}
+	return s
+}
+
+func (s *graphSnapshot) clone() *graphSnapshot {
+	if s == nil {
+		return &graphSnapshot{nodeCounts: map[NodeType]int{}, edgeCounts: map[EdgeType]int{}}
+	}
+	nodes := make(map[NodeType]int, len(s.nodeCounts))
+	for k, v := range s.nodeCounts {
+		nodes[k] = v
+	}
+	edges := make(map[EdgeType]int, len(s.edgeCounts))
+	for k, v := range s.edgeCounts {
+		edges[k] = v
+	}
+	return &graphSnapshot{nodeCounts: nodes, edgeCounts: edges}
+}
+
+func (s *graphSnapshot) hasNodeType(t NodeType) bool { return s != nil && s.nodeCounts[t] > 0 }
+func (s *graphSnapshot) hasEdgeType(t EdgeType) bool { return s != nil && s.edgeCounts[t] > 0 }
+
+func (s *graphSnapshot) applyAction(ac ActionClass) {
+	if s == nil {
+		return
+	}
+	for _, n := range ac.ProducesNodes {
+		s.nodeCounts[n]++
+	}
+	for _, e := range ac.ProducesEdges {
+		s.edgeCounts[e]++
+	}
+}
+
+func (s *graphSnapshot) hash() string {
+	if s == nil {
+		return ""
+	}
+	nodeKeys := make([]string, 0, len(s.nodeCounts))
+	for n, c := range s.nodeCounts {
+		nodeKeys = append(nodeKeys, fmt.Sprintf("n:%s:%d", n, c))
+	}
+	sort.Strings(nodeKeys)
+	edgeKeys := make([]string, 0, len(s.edgeCounts))
+	for e, c := range s.edgeCounts {
+		edgeKeys = append(edgeKeys, fmt.Sprintf("e:%s:%d", e, c))
+	}
+	sort.Strings(edgeKeys)
+	return strings.Join(append(nodeKeys, edgeKeys...), "|")
+}
+
+func matchSnapshotPatterns(snapshot *graphSnapshot, patterns []GraphPattern) bool {
+	if snapshot == nil {
+		return false
+	}
+	for _, pattern := range patterns {
+		for _, nodeType := range pattern.RequiredNodeTypes {
+			if !snapshot.hasNodeType(nodeType) {
+				return false
+			}
+		}
+		for _, edgeType := range pattern.RequiredEdges {
+			if !snapshot.hasEdgeType(edgeType) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func buildActionClassIndex(classes []ActionClass) actionClassIndex {
+	idx := actionClassIndex{byRequiredNode: map[NodeType][]ActionClass{}}
+	for _, ac := range classes {
+		nodes := requiredNodes(ac.Preconditions)
+		if len(nodes) == 0 {
+			idx.withoutReq = append(idx.withoutReq, ac)
+			continue
+		}
+		for _, n := range nodes {
+			idx.byRequiredNode[n] = append(idx.byRequiredNode[n], ac)
+		}
+	}
+	return idx
+}
+
+func requiredNodes(patterns []GraphPattern) []NodeType {
+	set := map[NodeType]struct{}{}
+	for _, p := range patterns {
+		for _, n := range p.RequiredNodeTypes {
+			set[n] = struct{}{}
+		}
+	}
+	out := make([]NodeType, 0, len(set))
+	for n := range set {
+		out = append(out, n)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+func (idx actionClassIndex) eligible(snapshot *graphSnapshot) []ActionClass {
+	seen := map[string]ActionClass{}
+	for _, ac := range idx.withoutReq {
+		seen[ac.ID] = ac
+	}
+	for n := range snapshot.nodeCounts {
+		if snapshot.nodeCounts[n] == 0 {
+			continue
+		}
+		for _, ac := range idx.byRequiredNode[n] {
+			seen[ac.ID] = ac
+		}
+	}
+	out := make([]ActionClass, 0, len(seen))
+	for _, ac := range seen {
+		out = append(out, ac)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+func projectCampaignState(base CampaignProjectionState, ac ActionClass) (CampaignProjectionState, error) {
+	next := CampaignProjectionState{Graph: base.Graph.clone(), PhaseProgress: append(append([]state.OperationPhase(nil), base.PhaseProgress...), ac.Phase)}
+	if next.Graph == nil {
+		next.Graph = &graphSnapshot{nodeCounts: map[NodeType]int{}, edgeCounts: map[EdgeType]int{}}
+	}
+	if !matchSnapshotPatterns(next.Graph, ac.Preconditions) {
 		return CampaignProjectionState{}, fmt.Errorf("preconditions do not match")
 	}
-	if err := simulateAction(next.Graph, ac); err != nil {
-		return CampaignProjectionState{}, err
-	}
+	next.Graph.applyAction(ac)
 	return next, nil
 }
 
@@ -92,37 +234,39 @@ func (e *Engine) ExpandAttackPaths(st *state.State) ([]AttackPath, error) {
 		return nil, nil
 	}
 
+	idx := buildActionClassIndex(classes)
+	unlockCache := map[string]float64{}
+
 	seeded := e.seedNodeCount(cfg.StartNodeTypes)
 	if seeded == 0 {
 		return nil, nil
 	}
 
 	currentPhase := phaseForState(st)
+	baseSnapshot := snapshotFromGraph(e.graph)
 	beam := make([]attackCandidate, 0, len(classes))
 	paths := make([]AttackPath, 0)
 	seen := make(map[string]struct{})
 
-	for _, root := range classes {
-		if !phaseAllowed(currentPhase, root.Phase) || !cfg.ROEPolicy(root, e.graph, st) || !MatchPatterns(e.graph, root.Preconditions) {
+	for _, root := range idx.eligible(baseSnapshot) {
+		if !phaseAllowed(currentPhase, root.Phase) || !cfg.ROEPolicy(root, e.graph, st) || !matchSnapshotPatterns(baseSnapshot, root.Preconditions) {
 			continue
 		}
 		stack := []ActionClass{root}
-		scored := scorePath(buildHypotheses(stack), stack, classes, "", cfg)
-		beam = append(beam, attackCandidate{graph: cloneGraph(e.graph), stack: stack, score: scored.Score, key: actionStackKey(stack)})
+		scored := scorePathWithCache(buildHypotheses(stack), stack, classes, "", cfg, unlockCache, baseSnapshot.hash())
+		beam = append(beam, attackCandidate{graph: baseSnapshot.clone(), stack: stack, score: scored.Score, key: actionStackKey(stack)})
 	}
 	beam = pruneAttackBeam(beam, cfg.BeamWidth)
 
 	for depth := 1; depth <= cfg.MaxDepth && len(beam) > 0; depth++ {
 		nextBeam := make([]attackCandidate, 0, len(beam)*len(classes))
 		for _, cand := range beam {
-			gCopy := cloneGraph(cand.graph)
+			gCopy := cand.graph.clone()
 			latest := cand.stack[len(cand.stack)-1]
-			if !MatchPatterns(gCopy, latest.Preconditions) || !cfg.ROEPolicy(latest, gCopy, st) {
+			if !matchSnapshotPatterns(gCopy, latest.Preconditions) || !cfg.ROEPolicy(latest, e.graph, st) {
 				continue
 			}
-			if err := simulateAction(gCopy, latest); err != nil {
-				continue
-			}
+			gCopy.applyAction(latest)
 
 			risk := cumulativeRisk(cand.stack)
 			riskLimit := cfg.RiskThreshold
@@ -133,7 +277,7 @@ func (e *Engine) ExpandAttackPaths(st *state.State) ([]AttackPath, error) {
 				continue
 			}
 			objective, reached := findObjective(cfg.ObjectiveNodeTypes, latest.ProducesNodes)
-			path := scorePath(buildHypotheses(cand.stack), cand.stack, classes, objective, cfg)
+			path := scorePathWithCache(buildHypotheses(cand.stack), cand.stack, classes, objective, cfg, unlockCache, gCopy.hash())
 			if reached {
 				key := pathKey(path)
 				if _, exists := seen[key]; !exists {
@@ -145,12 +289,15 @@ func (e *Engine) ExpandAttackPaths(st *state.State) ([]AttackPath, error) {
 			if depth == cfg.MaxDepth {
 				continue
 			}
-			for _, next := range classes {
+			for _, next := range idx.eligible(gCopy) {
 				if !phaseAllowed(currentPhase, next.Phase) || actionInStack(cand.stack, next.ID) {
 					continue
 				}
+				if !matchSnapshotPatterns(gCopy, next.Preconditions) {
+					continue
+				}
 				nextStack := append(append([]ActionClass(nil), cand.stack...), next)
-				nextScored := scorePath(buildHypotheses(nextStack), nextStack, classes, "", cfg)
+				nextScored := scorePathWithCache(buildHypotheses(nextStack), nextStack, classes, "", cfg, unlockCache, gCopy.hash())
 				nextBeam = append(nextBeam, attackCandidate{graph: gCopy, stack: nextStack, score: nextScored.Score, key: actionStackKey(nextStack)})
 			}
 		}
@@ -228,46 +375,6 @@ func hypothesisForAction(ac ActionClass, idx int) Hypothesis {
 		Statement:     fmt.Sprintf("Action class %s is feasible", ac.Name),
 		Confidence:    0.5 + ac.ConfidenceBoost,
 	}
-}
-
-func simulateAction(g *Graph, ac ActionClass) error {
-	if g == nil {
-		return fmt.Errorf("graph is nil")
-	}
-	base := fmt.Sprintf("sim-%s-%d", ac.ID, len(g.NodesByType(NodeTypeEvidence))+len(g.NodesByType(NodeTypeHypothesis))+len(g.NodesByType(NodeTypeTechnique))+len(g.NodesByType(NodeTypeAttackPath)))
-	for idx, nodeType := range ac.ProducesNodes {
-		g.UpsertNode(&Node{ID: fmt.Sprintf("%s-node-%d", base, idx), Type: nodeType, Label: fmt.Sprintf("simulated %s", ac.ID)})
-	}
-	nodes := g.NodesByType(NodeTypeEvidence)
-	if len(nodes) == 0 {
-		return nil
-	}
-	for idx, edgeType := range ac.ProducesEdges {
-		toID := fmt.Sprintf("%s-edge-node-%d", base, idx)
-		g.UpsertNode(&Node{ID: toID, Type: NodeTypeHypothesis, Label: "simulated edge target"})
-		_ = g.AddEdge(&Edge{From: nodes[0].ID, To: toID, Type: edgeType, Weight: 1})
-	}
-	return nil
-}
-
-func cloneGraph(g *Graph) *Graph {
-	if g == nil {
-		return NewGraph()
-	}
-	copy := NewGraph()
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	for id, node := range g.nodes {
-		metadata := make(map[string]string, len(node.Metadata))
-		for k, v := range node.Metadata {
-			metadata[k] = v
-		}
-		copy.nodes[id] = &Node{ID: node.ID, Type: node.Type, Label: node.Label, CreatedAt: node.CreatedAt, Metadata: metadata}
-	}
-	for _, edge := range g.edges {
-		copy.edges = append(copy.edges, &Edge{From: edge.From, To: edge.To, Type: edge.Type, Weight: edge.Weight, CreatedAt: edge.CreatedAt})
-	}
-	return copy
 }
 
 func phaseAllowed(current, candidate state.OperationPhase) bool {
