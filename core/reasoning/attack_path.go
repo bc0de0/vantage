@@ -114,7 +114,7 @@ func explorePathTree(g *Graph, st *state.State, cfg AttackPathConfig, classes []
 	}
 
 	if objective, ok := findObjective(cfg.ObjectiveNodeTypes, latest.ProducesNodes); ok {
-		path := scorePath(steps, stack, objective, cfg)
+		path := scorePath(steps, stack, classes, objective, cfg)
 		key := pathKey(path)
 		if _, exists := seen[key]; !exists {
 			seen[key] = struct{}{}
@@ -136,7 +136,7 @@ func explorePathTree(g *Graph, st *state.State, cfg AttackPathConfig, classes []
 	}
 
 	if !advanced {
-		path := scorePath(steps, stack, "", cfg)
+		path := scorePath(steps, stack, classes, "", cfg)
 		path.Valid = MatchPatterns(g, latest.Preconditions)
 		if path.Valid {
 			key := pathKey(path)
