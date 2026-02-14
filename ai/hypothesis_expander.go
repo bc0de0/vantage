@@ -40,6 +40,7 @@ func (a HypothesisExpanderAdapter) Expand(graph *reasoning.Graph, _ *state.State
 	for idx, suggestion := range advisory.Suggested {
 		hypotheses = append(hypotheses, reasoning.Hypothesis{
 			ID:                fmt.Sprintf("hyp-ai-%d-%s", idx+1, suggestion.ID),
+			ActionClassID:     suggestion.ID,
 			Statement:         fmt.Sprintf("AI advisory suggests %s: %s", suggestion.ID, suggestion.Rationale),
 			SupportingNodeIDs: nil,
 			Confidence:        suggestion.Confidence,

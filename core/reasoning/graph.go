@@ -138,6 +138,18 @@ func (g *Graph) EdgesFrom(nodeID string) []*Edge {
 	return out
 }
 
+// HasEdgeType returns true when at least one edge of the requested type exists.
+func (g *Graph) HasEdgeType(edgeType EdgeType) bool {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	for _, e := range g.edges {
+		if e.Type == edgeType {
+			return true
+		}
+	}
+	return false
+}
+
 // ToDOT renders the graph as Graphviz DOT text.
 func (g *Graph) ToDOT() string {
 	g.mu.RLock()

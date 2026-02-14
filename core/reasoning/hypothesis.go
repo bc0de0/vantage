@@ -8,12 +8,15 @@ import (
 // Hypothesis is an inferred operational proposition.
 type Hypothesis struct {
 	ID                string
+	ActionClassID     string
 	Statement         string
 	SupportingNodeIDs []string
+	DerivedFrom       []string
 	Confidence        float64
 }
 
 // GenerateHypotheses derives hypotheses from current graph evidence.
+// GenerateHypotheses derives baseline deterministic hypotheses from current graph evidence.
 func GenerateHypotheses(graph *Graph) []Hypothesis {
 	if graph == nil {
 		return nil
@@ -30,6 +33,7 @@ func GenerateHypotheses(graph *Graph) []Hypothesis {
 			ID:                fmt.Sprintf("hyp-%d-%s", idx+1, n.ID),
 			Statement:         statement,
 			SupportingNodeIDs: []string{n.ID},
+			DerivedFrom:       []string{n.ID},
 			Confidence:        confidence,
 		})
 	}

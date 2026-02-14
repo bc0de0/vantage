@@ -34,13 +34,14 @@ func (p *Planner) RankedActions(query PlannerQuery) []RankedAction {
 		}
 		score := ScoreTechnique(effect, p.weights)
 		out = append(out, RankedAction{
-			TechniqueID: id,
-			Target:      query.Target,
-			Score:       score,
-			Impact:      effect.Impact,
-			Risk:        effect.Risk,
-			Stealth:     effect.Stealth,
-			Reason:      fmt.Sprintf("impact=%.2f risk=%.2f stealth=%.2f", effect.Impact, effect.Risk, effect.Stealth),
+			TechniqueID:   id,
+			ActionClassID: effect.ActionClassID,
+			Target:        query.Target,
+			Score:         score,
+			Impact:        effect.Impact,
+			Risk:          effect.Risk,
+			Stealth:       effect.Stealth,
+			Reason:        fmt.Sprintf("impact=%.2f risk=%.2f stealth=%.2f", effect.Impact, effect.Risk, effect.Stealth),
 		})
 	}
 

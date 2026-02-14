@@ -21,13 +21,14 @@ type Decision struct {
 
 // Engine orchestrates the full reasoning lifecycle over an in-memory graph.
 type Engine struct {
-	mu       sync.RWMutex
-	graph    *Graph
-	registry *effectRegistry
-	planner  *Planner
-	expander HypothesisExpander
-	state    *state.State
-	cycle    CycleConfig
+	mu           sync.RWMutex
+	graph        *Graph
+	registry     *effectRegistry
+	planner      *Planner
+	expander     HypothesisExpander
+	actionBinder ActionBinder
+	state        *state.State
+	cycle        CycleConfig
 }
 
 // TechniqueExecutor executes a selected technique against a target.
@@ -56,11 +57,16 @@ func NewEngine(expander HypothesisExpander) *Engine {
 		})
 	}
 	planner := NewPlanner(registry, DefaultTechniqueScoreWeights())
+	binder := NewDefaultActionBinder()
+	if classes, err := LoadActionClassesFromDir("action-classes-normalized"); err == nil {
+		binder.BindActionClasses(classes)
+	}
 	return &Engine{
-		graph:    NewGraph(),
-		registry: registry,
-		planner:  planner,
-		expander: expander,
+		graph:        NewGraph(),
+		registry:     registry,
+		planner:      planner,
+		expander:     expander,
+		actionBinder: binder,
 	}
 }
 
@@ -69,6 +75,13 @@ func (e *Engine) Graph() *Graph {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.graph
+}
+
+// BindActionClasses replaces the action class set driving deterministic reasoning.
+func (e *Engine) BindActionClasses(classes []ActionClass) {
+	if e.actionBinder != nil {
+		e.actionBinder.BindActionClasses(classes)
+	}
 }
 
 // RegisterTechniqueEffect registers or updates effect metadata for a technique.
@@ -104,9 +117,23 @@ func (e *Engine) IngestEvidence(event EvidenceEvent) error {
 	return nil
 }
 
+// GenerateHypotheses creates deterministic hypotheses from evidence and action-class matching.
+// Action classes act as graph rules: when phase and preconditions match, the engine emits
+// deterministic hypotheses anchored to the matching action class IDs.
+func (e *Engine) GenerateHypotheses() []Hypothesis {
+	hypotheses := GenerateHypotheses(e.graph)
+	if e.actionBinder != nil {
+		matched, err := e.actionBinder.MatchAndGenerate(e.graph, e.state)
+		if err == nil {
+			hypotheses = append(hypotheses, matched...)
+		}
+	}
+	return hypotheses
+}
+
 // PlanNextAction runs hypothesis generation, scoring, and action selection.
 func (e *Engine) PlanNextAction(query PlannerQuery) (*Decision, error) {
-	hypotheses := GenerateHypotheses(e.graph)
+	hypotheses := e.GenerateHypotheses()
 	if e.expander != nil {
 		aiHypotheses, err := e.expander.Expand(e.graph, e.state)
 		if err == nil {
@@ -114,7 +141,7 @@ func (e *Engine) PlanNextAction(query PlannerQuery) (*Decision, error) {
 		}
 	}
 	for _, h := range hypotheses {
-		e.graph.UpsertNode(&Node{ID: h.ID, Type: NodeTypeHypothesis, Label: h.Statement, Metadata: map[string]string{"confidence": fmt.Sprintf("%.2f", h.Confidence)}})
+		e.graph.UpsertNode(&Node{ID: h.ID, Type: NodeTypeHypothesis, Label: h.Statement, Metadata: map[string]string{"confidence": fmt.Sprintf("%.2f", h.Confidence), "action_class": h.ActionClassID}})
 		for _, support := range h.SupportingNodeIDs {
 			_ = e.graph.AddEdge(&Edge{From: support, To: h.ID, Type: EdgeTypeSupports, Weight: h.Confidence})
 		}
@@ -179,13 +206,18 @@ func (e *Engine) RunCycle(state *state.State) (*Decision, error) {
 
 	artifact, execErr := cfg.Executor.Run(ctx, decision.Selected.TechniqueID, cfg.Target)
 	if artifact != nil {
-		_ = e.IngestEvidence(EvidenceEvent{
-			TechniqueID: artifact.TechniqueID,
-			Target:      artifact.Target,
-			Success:     artifact.Success,
-			Output:      artifact.Output,
-			Artifact:    artifact,
-		})
+		event := EvidenceEvent{TechniqueID: artifact.TechniqueID, Target: artifact.Target, Success: artifact.Success, Output: artifact.Output, Artifact: artifact}
+		applied := false
+		if binder, ok := e.actionBinder.(*DefaultActionBinder); ok && decision.Selected.ActionClassID != "" {
+			if ac, found := binder.ActionClass(decision.Selected.ActionClassID); found {
+				if err := e.actionBinder.ApplyAction(e.graph, ac, event); err == nil {
+					applied = true
+				}
+			}
+		}
+		if !applied {
+			_ = e.IngestEvidence(event)
+		}
 	}
 
 	if execErr != nil {
