@@ -1,9 +1,9 @@
-id: AC-LATERAL-REACH
-name: Lateral Reachability Assessment
-description: Assess reachability to adjacent assets
-intent_domains: [discovery]
-roe_category: active_non_invasive
+id: AC-10
+name: Privilege Assessment
+description: Assess permissions and access level
+intent_domains: [validation]
+roe_category: active_invasive
 exposure_cost: medium
 operator_involvement: optional
 preconditions: [access_established]
-notes: No movement implied
+notes: Read-only

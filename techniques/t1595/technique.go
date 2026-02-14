@@ -119,7 +119,7 @@ func (t *Technique1595) Resolve(
 	// Hard exclusions (documented for audit)
 	// -----------------------------------------------------------------
 	for _, id := range []string{
-		"AC-06", "AC-07", "AC-08", "AC-09", "AC-10",
+		"AC-01", "AC-06", "AC-07", "AC-08", "AC-09", "AC-10",
 		"AC-11", "AC-12", "AC-13", "AC-14", "AC-15",
 	} {
 		excluded = append(excluded, techniques.ExcludedActionClass{
