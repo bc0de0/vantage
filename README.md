@@ -115,6 +115,7 @@ Action remains a human responsibility, executed using external tools and workflo
 - AI abstraction layer
 - Reasoning and selection scaffolding
 - Clear architectural boundaries
+- Phase-driven cognition scaffold (`core/reasoning`, `core/knowledge`, `planning`, `memory`)
 
 ### What is intentionally not yet expanded:
 
