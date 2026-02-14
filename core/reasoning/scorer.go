@@ -1,20 +1,18 @@
 package reasoning
 
-import (
-	"math"
-	"strings"
-)
-
 const (
-	// DepthFactor scales logarithmic depth penalty so deeper paths are discouraged
-	// without over-penalizing meaningful multi-hop chains.
-	DepthFactor = 0.35
-	// ConfidenceFactor weights average hypothesis confidence to reward paths backed
-	// by stronger evidence while keeping confidence subordinate to impact.
-	ConfidenceFactor = 0.75
-	// SynergyBonusValue rewards paths that coordinate across three or more phases,
-	// capturing cross-phase attack-chain compounding effects.
-	SynergyBonusValue = 0.6
+	// ConfidenceWeight emphasizes confidence-backed paths.
+	ConfidenceWeight = 0.8
+	// FeasibilityWeight rewards paths with preconditions that are actually satisfiable.
+	FeasibilityWeight = 1.1
+	// UnlockFactor rewards paths that unlock additional action classes.
+	UnlockFactor = 0.15
+	// RiskThreshold defines when risk transitions to extreme-risk behavior.
+	RiskThreshold = 2.0
+	// SmallRiskFactor scales low-risk linear penalty.
+	SmallRiskFactor = 0.4
+	// DepthFactor penalizes deeper paths to prioritize practical chains.
+	DepthFactor = 0.25
 )
 
 // TechniqueScoreWeights configures weighted multi-factor scoring.
@@ -43,55 +41,147 @@ func ScoreTechnique(effect TechniqueEffect, weights TechniqueScoreWeights) float
 		(effect.Stealth * weights.StealthWeight)
 }
 
-func scorePath(steps []Hypothesis, classes []ActionClass, objective NodeType, _ AttackPathConfig) AttackPath {
-	impactSum := 0.0
-	risk := 0.0
-	riskPenalty := 0.0
+func scorePath(steps []Hypothesis, pathClasses []ActionClass, allClasses []ActionClass, objective NodeType, _ AttackPathConfig) AttackPath {
 	totalConfidence := 0.0
-	phaseSet := make(map[OperationPhase]struct{})
-
-	for i, ac := range classes {
-		impactSum += ac.ImpactWeight
-		risk += ac.RiskWeight
-		riskPenalty += ac.RiskWeight * ac.RiskWeight
-		phaseSet[ac.Phase] = struct{}{}
+	risk := 0.0
+	for i := range pathClasses {
+		risk += pathClasses[i].RiskWeight
 		if i < len(steps) {
 			totalConfidence += steps[i].Confidence
 		}
 	}
 
-	avgConfidence := 0.0
+	averageConfidence := 0.0
 	if len(steps) > 0 {
-		avgConfidence = totalConfidence / float64(len(steps))
+		averageConfidence = totalConfidence / float64(len(steps))
 	}
 
-	objectiveMultiplier := 1.0
-	if len(classes) > 0 && hasHighImpactNode(classes[len(classes)-1].ProducesNodes) {
-		objectiveMultiplier = 1.4
-	}
+	feasibilityScore := averageFeasibility(pathClasses)
+	unlockBonus := unlockedActionCount(pathClasses, allClasses) * UnlockFactor
+	extremeRiskPenalty := riskPenalty(risk)
+	depthPenalty := float64(len(steps)) * DepthFactor
 
-	synergyBonus := 0.0
-	if len(phaseSet) >= 3 {
-		synergyBonus = SynergyBonusValue
-	}
-
-	depthPenalty := math.Log(float64(len(steps))+1) * DepthFactor
-	score := (impactSum * objectiveMultiplier) +
-		(avgConfidence * ConfidenceFactor) +
-		synergyBonus -
-		riskPenalty -
-		depthPenalty
+	score :=
+		(averageConfidence * ConfidenceWeight) +
+			(feasibilityScore * FeasibilityWeight) +
+			unlockBonus -
+			extremeRiskPenalty -
+			depthPenalty
 
 	return AttackPath{Steps: steps, Score: score, Risk: risk, Objective: objective, Valid: true}
 }
 
-func hasHighImpactNode(nodes []NodeType) bool {
-	for _, nodeType := range nodes {
-		normalized := strings.ToLower(string(nodeType))
-		switch normalized {
-		case "dataexposure", "data_exposure", "externalexecution", "external_execution":
-			return true
+func averageFeasibility(path []ActionClass) float64 {
+	if len(path) == 0 {
+		return 0
+	}
+
+	nodeTypes := map[NodeType]struct{}{NodeTypeEvidence: {}}
+	edgeTypes := map[EdgeType]struct{}{}
+	totalRatio := 0.0
+
+	for _, ac := range path {
+		matched, total := matchedPreconditions(ac.Preconditions, nodeTypes, edgeTypes)
+		ratio := 1.0
+		if total > 0 {
+			ratio = float64(matched) / float64(total)
+		}
+		totalRatio += ratio
+
+		for _, n := range ac.ProducesNodes {
+			nodeTypes[n] = struct{}{}
+		}
+		for _, e := range ac.ProducesEdges {
+			edgeTypes[e] = struct{}{}
 		}
 	}
-	return false
+
+	return totalRatio / float64(len(path))
+}
+
+func unlockedActionCount(path []ActionClass, universe []ActionClass) float64 {
+	if len(path) == 0 || len(universe) == 0 {
+		return 0
+	}
+
+	beforeNodes, beforeEdges := availabilityBeforeLast(path)
+	afterNodes, afterEdges := availabilityAfterPath(path)
+	selected := make(map[string]struct{}, len(path))
+	for _, ac := range path {
+		selected[ac.ID] = struct{}{}
+	}
+
+	unlocked := 0
+	for _, candidate := range universe {
+		if _, used := selected[candidate.ID]; used {
+			continue
+		}
+		wasEligible := preconditionsEligible(candidate.Preconditions, beforeNodes, beforeEdges)
+		isEligible := preconditionsEligible(candidate.Preconditions, afterNodes, afterEdges)
+		if !wasEligible && isEligible {
+			unlocked++
+		}
+	}
+	return float64(unlocked)
+}
+
+func riskPenalty(risk float64) float64 {
+	if risk > RiskThreshold {
+		return risk * risk
+	}
+	return risk * SmallRiskFactor
+}
+
+func availabilityBeforeLast(path []ActionClass) (map[NodeType]struct{}, map[EdgeType]struct{}) {
+	if len(path) <= 1 {
+		return map[NodeType]struct{}{NodeTypeEvidence: {}}, map[EdgeType]struct{}{}
+	}
+	return availabilityAfterPath(path[:len(path)-1])
+}
+
+func availabilityAfterPath(path []ActionClass) (map[NodeType]struct{}, map[EdgeType]struct{}) {
+	nodeTypes := map[NodeType]struct{}{NodeTypeEvidence: {}}
+	edgeTypes := map[EdgeType]struct{}{}
+	for _, ac := range path {
+		for _, n := range ac.ProducesNodes {
+			nodeTypes[n] = struct{}{}
+		}
+		for _, e := range ac.ProducesEdges {
+			edgeTypes[e] = struct{}{}
+		}
+	}
+	return nodeTypes, edgeTypes
+}
+
+func matchedPreconditions(patterns []GraphPattern, nodeTypes map[NodeType]struct{}, edgeTypes map[EdgeType]struct{}) (matched int, total int) {
+	total = len(patterns)
+	for _, pattern := range patterns {
+		if patternSatisfied(pattern, nodeTypes, edgeTypes) {
+			matched++
+		}
+	}
+	return matched, total
+}
+
+func preconditionsEligible(patterns []GraphPattern, nodeTypes map[NodeType]struct{}, edgeTypes map[EdgeType]struct{}) bool {
+	for _, pattern := range patterns {
+		if !patternSatisfied(pattern, nodeTypes, edgeTypes) {
+			return false
+		}
+	}
+	return true
+}
+
+func patternSatisfied(pattern GraphPattern, nodeTypes map[NodeType]struct{}, edgeTypes map[EdgeType]struct{}) bool {
+	for _, requiredNode := range pattern.RequiredNodeTypes {
+		if _, ok := nodeTypes[requiredNode]; !ok {
+			return false
+		}
+	}
+	for _, requiredEdge := range pattern.RequiredEdges {
+		if _, ok := edgeTypes[requiredEdge]; !ok {
+			return false
+		}
+	}
+	return true
 }
