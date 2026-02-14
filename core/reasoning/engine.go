@@ -154,6 +154,10 @@ func (e *Engine) PlanNextAction(query PlannerQuery) (*Decision, error) {
 			}
 		}
 	}
+
+	if e.state != nil {
+		applyStateMemoryAdjustments(ranked, e.state)
+	}
 	if len(ranked) == 0 {
 		return nil, fmt.Errorf("no ranked actions available")
 	}
@@ -226,6 +230,13 @@ func (e *Engine) RunCycle(state *state.State) (*Decision, error) {
 		}
 	}
 
+	if e.state != nil {
+		reconLike := false
+		if decision.Selected.ActionClassID != "" {
+			reconLike = len(decision.Selected.ActionClassID) >= 4 && decision.Selected.ActionClassID[:4] == "AC-0"
+		}
+		e.state.RecordActionMemory(decision.Selected.ActionClassID, execErr == nil, reconLike)
+	}
 	if execErr != nil {
 		return decision, execErr
 	}

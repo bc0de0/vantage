@@ -1,24 +1,16 @@
-# Reasoning-Centric Restructure (Phase 1)
+# Vantage Research-Grade Campaign Simulator Notes
 
-This repository now includes a **foundational reasoning-core scaffold** aligned with the cognition-centric architecture:
+## Beam search rationale
+Vantage now expands attack and campaign candidates with deterministic beam search. At each depth, only top-K candidates are retained (default K=25). This keeps planning tractable while preserving high-value branches.
 
-- `core/reasoning`: deterministic reasoning cycle, hypotheses, confidence scoring
-- `core/knowledge`: in-memory operational graph with typed nodes/edges
-- `core/opsec`: OPSEC-aware candidate filtering
-- `planning`: weighted tactic ranking for attack-path options
-- `memory`: session/campaign/global pattern stores
-- `core/state/operation_phase.go` + `core/state_machine.go`: phase-driven operation lifecycle
+## Goal bias philosophy
+Campaign and path scoring include objective proximity, prioritizing branches that either directly produce the requested objective or reduce estimated distance to it.
 
-## Design boundaries enforced
+## Memory model semantics
+State now tracks previous actions, accumulated exposure knowledge, and failed attempts. Repeated failures reduce confidence for repeated actions; repeated reconnaissance increases unlock potential.
 
-- Reasoning layer operates on structured domain objects only.
-- Planner and OPSEC evaluator are injected interfaces.
-- No controller/UI coupling in reasoning packages.
-- Confidence is evidence-backed and explicit.
+## AI overlay architecture
+CLI commands serialize top campaigns into structured JSON and emit advisory explanations (realism, top-3 comparison, and defensive implications). Core deterministic reasoning remains unchanged and works without AI mode enabled.
 
-## Next implementation increments
-
-1. Add telemetry ingest adapters into `intelligence/*`.
-2. Build attack-graph path expansion over `core/knowledge.Graph`.
-3. Add simulation package for defender-response replay.
-4. Wire `api/controllers` to trigger one reasoning cycle and return schema-first output.
+## Scalability strategy
+A synthetic 1000-technique stress suite validates bounded runtime and controlled branching under beam search and memory-aware scoring.
