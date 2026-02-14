@@ -143,19 +143,40 @@ var graphCmd = &cobra.Command{
 
 var explainCmd = &cobra.Command{
 	Use:   "explain",
-	Short: "Explain ranked candidates for the next cycle",
+	Short: "Explain planned campaigns and defensive implications",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		target, _ := cmd.Flags().GetString("target")
-		techniques, _ := cmd.Flags().GetStringSlice("technique")
-
-		reasoner := reasoning.NewEngine(nil)
-		decision, err := reasoner.PlanNextAction(reasoning.PlannerQuery{Target: target, AllowedTechniques: techniques})
+		objectiveFlag, _ := cmd.Flags().GetString("objective")
+		objective, err := parseObjectiveNodeType(objectiveFlag)
 		if err != nil {
 			return err
 		}
-		for i, ranked := range decision.Ranked {
-			fmt.Printf("%d. %s score=%.2f %s\n", i+1, ranked.TechniqueID, ranked.Score, ranked.Reason)
+		reasoner := reasoning.NewEngine(nil)
+		reasoner.Graph().UpsertNode(&reasoning.Node{ID: "explain-seed", Type: reasoning.NodeTypeEvidence, Label: "seed"})
+		campaigns, err := reasoner.PlanCampaign(objective, reasoning.DefaultCampaignOptions())
+		if err != nil {
+			return err
 		}
+		fmt.Println(renderCampaignExplanation(objective, campaigns))
+		return nil
+	},
+}
+
+var compareCmd = &cobra.Command{
+	Use:   "compare",
+	Short: "Compare top 3 campaigns",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		objectiveFlag, _ := cmd.Flags().GetString("objective")
+		objective, err := parseObjectiveNodeType(objectiveFlag)
+		if err != nil {
+			return err
+		}
+		reasoner := reasoning.NewEngine(nil)
+		reasoner.Graph().UpsertNode(&reasoning.Node{ID: "compare-seed", Type: reasoning.NodeTypeEvidence, Label: "seed"})
+		campaigns, err := reasoner.PlanCampaign(objective, reasoning.CampaignOptions{TopN: 3})
+		if err != nil {
+			return err
+		}
+		fmt.Println(renderCampaignExplanation(objective, campaigns))
 		return nil
 	},
 }
@@ -194,7 +215,7 @@ var planCmd = &cobra.Command{
 
 		reasoner := reasoning.NewEngine(nil)
 		reasoner.Graph().UpsertNode(&reasoning.Node{ID: "plan-seed", Type: reasoning.NodeTypeEvidence, Label: "planner seed"})
-		campaigns, err := reasoner.PlanCampaign(reasoner.Graph(), objective, reasoning.CampaignOptions{
+		campaigns, err := reasoner.PlanCampaign(objective, reasoning.CampaignOptions{
 			MaxDepth:            maxDepth,
 			RiskTolerance:       riskTolerance,
 			ConfidenceThreshold: confidenceThreshold,
@@ -212,6 +233,7 @@ var planCmd = &cobra.Command{
 		if len(campaigns) < limit {
 			limit = len(campaigns)
 		}
+		fmt.Println(renderCampaignExplanation(objective, campaigns[:limit]))
 		for i := 0; i < limit; i++ {
 			campaign := campaigns[i]
 			stepIDs := make([]string, 0, len(campaign.Steps))
@@ -247,10 +269,11 @@ func init() {
 	_ = graphCmd.MarkFlagRequired("target")
 	_ = graphCmd.MarkFlagRequired("campaign")
 
-	explainCmd.Flags().StringSlice("technique", nil, "Technique IDs (repeatable)")
-	explainCmd.Flags().String("target", "", "Target identifier")
-	_ = explainCmd.MarkFlagRequired("technique")
-	_ = explainCmd.MarkFlagRequired("target")
+	explainCmd.Flags().String("objective", "", "Objective node type")
+	_ = explainCmd.MarkFlagRequired("objective")
+
+	compareCmd.Flags().String("objective", "", "Objective node type")
+	_ = compareCmd.MarkFlagRequired("objective")
 
 	simulateCmd.Flags().StringSlice("technique", nil, "Technique IDs (repeatable)")
 	simulateCmd.Flags().String("target", "", "Target identifier")
@@ -264,5 +287,5 @@ func init() {
 	planCmd.Flags().Int("beam-width", reasoning.DefaultCampaignOptions().BeamWidth, "Beam width per depth")
 	_ = planCmd.MarkFlagRequired("objective")
 
-	rootCmd.AddCommand(runCmd, loopCmd, graphCmd, explainCmd, simulateCmd, planCmd)
+	rootCmd.AddCommand(runCmd, loopCmd, graphCmd, explainCmd, simulateCmd, planCmd, compareCmd)
 }

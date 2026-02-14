@@ -17,33 +17,24 @@ const (
 	ObjectiveProximityFactor = 1.35
 )
 
-// TechniqueScoreWeights configures weighted multi-factor scoring.
 type TechniqueScoreWeights struct {
 	ImpactWeight  float64
 	RiskWeight    float64
 	StealthWeight float64
 }
 
-// DefaultTechniqueScoreWeights returns conservative defaults.
 func DefaultTechniqueScoreWeights() TechniqueScoreWeights {
-	return TechniqueScoreWeights{
-		ImpactWeight:  0.5,
-		RiskWeight:    0.2,
-		StealthWeight: 0.3,
-	}
+	return TechniqueScoreWeights{ImpactWeight: 0.5, RiskWeight: 0.2, StealthWeight: 0.3}
 }
 
-// ScoreTechnique computes a single normalized score from factors.
 func ScoreTechnique(effect TechniqueEffect, weights TechniqueScoreWeights) float64 {
 	if weights == (TechniqueScoreWeights{}) {
 		weights = DefaultTechniqueScoreWeights()
 	}
-	return (effect.Impact * weights.ImpactWeight) +
-		((1 - effect.Risk) * weights.RiskWeight) +
-		(effect.Stealth * weights.StealthWeight)
+	return (effect.Impact * weights.ImpactWeight) + ((1 - effect.Risk) * weights.RiskWeight) + (effect.Stealth * weights.StealthWeight)
 }
 
-func scorePath(steps []Hypothesis, pathClasses []ActionClass, allClasses []ActionClass, objective NodeType, _ AttackPathConfig) AttackPath {
+func scorePath(steps []Hypothesis, pathClasses []ActionClass, allClasses []ActionClass, objective NodeType, cfg AttackPathConfig) AttackPath {
 	totalConfidence := 0.0
 	risk := 0.0
 	for i := range pathClasses {
@@ -57,35 +48,43 @@ func scorePath(steps []Hypothesis, pathClasses []ActionClass, allClasses []Actio
 	if len(steps) > 0 {
 		averageConfidence = totalConfidence / float64(len(steps))
 	}
-
 	feasibilityScore := averageFeasibility(pathClasses)
 	unlockBonus := unlockedActionCount(pathClasses, allClasses) * UnlockFactor
-	extremeRiskPenalty := riskPenalty(risk)
-	depthPenalty := float64(len(steps)) * DepthFactor
+	score := (averageConfidence * ConfidenceWeight) + (feasibilityScore * FeasibilityWeight) + unlockBonus - riskPenalty(risk) - (float64(len(steps)) * DepthFactor)
 
-	score :=
-		(averageConfidence * ConfidenceWeight) +
-			(feasibilityScore * FeasibilityWeight) +
-			unlockBonus -
-			extremeRiskPenalty -
-			depthPenalty
-
+	proximity := objectiveProximity(pathClasses, objective, cfg)
+	score += proximity
 	if objective != "" {
 		score *= ObjectiveProximityFactor
 	}
 
-	return AttackPath{Steps: steps, Score: score, Risk: risk, Objective: objective, Valid: true}
+	return AttackPath{Steps: steps, Score: score, Risk: risk, Objective: objective, ObjectiveProximityScore: proximity, Valid: true}
 }
 
-func averageFeasibility(path []ActionClass) float64 {
+func objectiveProximity(pathClasses []ActionClass, objective NodeType, cfg AttackPathConfig) float64 {
+	if len(pathClasses) == 0 {
+		return 0
+	}
+	if objective != "" && producesNode(pathClasses[len(pathClasses)-1].ProducesNodes, objective) {
+		return 1
+	}
+	if objective == "" && len(cfg.ObjectiveNodeTypes) > 0 {
+		for _, o := range cfg.ObjectiveNodeTypes {
+			if producesNode(pathClasses[len(pathClasses)-1].ProducesNodes, o) {
+				return 0.9
+			}
+		}
+	}
+	return 1 / float64(len(pathClasses)+1)
+}
+
+func averageFeasibility(path []ActionClass) float64 { /* unchanged */
 	if len(path) == 0 {
 		return 0
 	}
-
 	nodeTypes := map[NodeType]struct{}{NodeTypeEvidence: {}}
 	edgeTypes := map[EdgeType]struct{}{}
 	totalRatio := 0.0
-
 	for _, ac := range path {
 		matched, total := matchedPreconditions(ac.Preconditions, nodeTypes, edgeTypes)
 		ratio := 1.0
@@ -93,7 +92,6 @@ func averageFeasibility(path []ActionClass) float64 {
 			ratio = float64(matched) / float64(total)
 		}
 		totalRatio += ratio
-
 		for _, n := range ac.ProducesNodes {
 			nodeTypes[n] = struct{}{}
 		}
@@ -101,7 +99,6 @@ func averageFeasibility(path []ActionClass) float64 {
 			edgeTypes[e] = struct{}{}
 		}
 	}
-
 	return totalRatio / float64(len(path))
 }
 
@@ -109,14 +106,12 @@ func unlockedActionCount(path []ActionClass, universe []ActionClass) float64 {
 	if len(path) == 0 || len(universe) == 0 {
 		return 0
 	}
-
 	beforeNodes, beforeEdges := availabilityBeforeLast(path)
 	afterNodes, afterEdges := availabilityAfterPath(path)
 	selected := make(map[string]struct{}, len(path))
 	for _, ac := range path {
 		selected[ac.ID] = struct{}{}
 	}
-
 	unlocked := 0
 	for _, candidate := range universe {
 		if _, used := selected[candidate.ID]; used {

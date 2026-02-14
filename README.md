@@ -122,7 +122,7 @@ This preserves the existing executor contract while shifting technique selection
 
 `core/reasoning` now includes deterministic campaign planning for objective-driven sequencing:
 
-- `PlanCampaign(start *Graph, objective NodeType, opts CampaignOptions) ([]Campaign, error)`
+- `PlanCampaign(objective NodeType, opts CampaignOptions) ([]Campaign, error)`
 - `CampaignOptions` supports:
   - `MaxDepth`
   - `RiskTolerance`

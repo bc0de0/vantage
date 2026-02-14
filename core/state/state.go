@@ -97,6 +97,11 @@ type Campaign struct {
 	// executions counts how many techniques were attempted.
 	executions uint64
 
+	// memory for multi-cycle adaptation.
+	previousActions   []string
+	exposureKnowledge map[string]float64
+	failedAttempts    map[string]int
+
 	// mu protects all mutable fields.
 	mu sync.RWMutex
 }
@@ -115,8 +120,11 @@ func New(campaignID string) (*Campaign, error) {
 	}
 
 	return &Campaign{
-		campaignID: campaignID,
-		status:     StatusInitialized,
+		campaignID:        campaignID,
+		status:            StatusInitialized,
+		previousActions:   make([]string, 0),
+		exposureKnowledge: make(map[string]float64),
+		failedAttempts:    make(map[string]int),
 	}, nil
 }
 
@@ -232,4 +240,44 @@ func (c *Campaign) FinishedAt() time.Time {
 // CampaignID returns the immutable campaign identifier.
 func (c *Campaign) CampaignID() string {
 	return c.campaignID
+}
+
+// RecordActionMemory tracks action outcomes across cycles.
+func (c *Campaign) RecordActionMemory(actionID string, success bool, recon bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if actionID == "" {
+		return
+	}
+	c.previousActions = append(c.previousActions, actionID)
+	if !success {
+		c.failedAttempts[actionID]++
+	}
+	if recon {
+		c.exposureKnowledge[actionID] += 0.1
+	}
+}
+
+func (c *Campaign) PreviousActions() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make([]string, len(c.previousActions))
+	copy(out, c.previousActions)
+	return out
+}
+
+func (c *Campaign) FailedAttempts(actionID string) int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.failedAttempts[actionID]
+}
+
+func (c *Campaign) ExposureKnowledge() map[string]float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make(map[string]float64, len(c.exposureKnowledge))
+	for k, v := range c.exposureKnowledge {
+		out[k] = v
+	}
+	return out
 }

@@ -26,10 +26,13 @@ type Campaign struct {
 
 // CampaignOptions controls campaign search bounds and pruning behavior.
 type CampaignOptions struct {
-	MaxDepth            int
-	RiskTolerance       float64
-	ConfidenceThreshold float64
-	BeamWidth           int
+	MaxDepth                int
+	RiskTolerance           float64
+	ConfidenceThreshold     float64
+	BeamWidth               int
+	TopN                    int
+	ObjectiveBiasWeight     float64
+	ObjectiveProximityScore float64
 }
 
 // DefaultCampaignOptions returns conservative deterministic planning defaults.
@@ -38,7 +41,9 @@ func DefaultCampaignOptions() CampaignOptions {
 		MaxDepth:            5,
 		RiskTolerance:       2.0,
 		ConfidenceThreshold: 0.55,
-		BeamWidth:           8,
+		BeamWidth:           25,
+		TopN:                10,
+		ObjectiveBiasWeight: 0.35,
 	}
 }
 
@@ -55,7 +60,7 @@ type campaignCandidate struct {
 }
 
 // PlanCampaign computes prioritized strategic campaigns for a requested objective node type.
-func (e *Engine) PlanCampaign(start *Graph, objective NodeType, opts CampaignOptions) ([]Campaign, error) {
+func (e *Engine) PlanCampaign(objective NodeType, opts CampaignOptions) ([]Campaign, error) {
 	if e == nil {
 		return nil, fmt.Errorf("engine is nil")
 	}
@@ -63,38 +68,18 @@ func (e *Engine) PlanCampaign(start *Graph, objective NodeType, opts CampaignOpt
 		return nil, fmt.Errorf("objective is required")
 	}
 
-	cfg := opts
-	if cfg.MaxDepth <= 0 || cfg.BeamWidth <= 0 {
-		defaults := DefaultCampaignOptions()
-		if cfg.MaxDepth <= 0 {
-			cfg.MaxDepth = defaults.MaxDepth
-		}
-		if cfg.BeamWidth <= 0 {
-			cfg.BeamWidth = defaults.BeamWidth
-		}
-		if cfg.RiskTolerance <= 0 {
-			cfg.RiskTolerance = defaults.RiskTolerance
-		}
-		if cfg.ConfidenceThreshold <= 0 {
-			cfg.ConfidenceThreshold = defaults.ConfidenceThreshold
-		}
-	}
-
+	cfg := normalizeCampaignOptions(opts)
 	classes := e.boundActionClasses()
 	if len(classes) == 0 {
 		return nil, nil
 	}
 	sort.Slice(classes, func(i, j int) bool { return classes[i].ID < classes[j].ID })
 
-	baseGraph := start
-	if baseGraph == nil {
-		baseGraph = e.graph
-	}
-	if baseGraph == nil {
+	if e.graph == nil {
 		return nil, fmt.Errorf("start graph is nil")
 	}
 
-	initial := campaignCandidate{graph: cloneGraph(baseGraph)}
+	initial := campaignCandidate{graph: cloneGraph(e.graph)}
 	beam := []campaignCandidate{initial}
 	currentPhase := phaseForState(e.state)
 	seen := map[string]struct{}{}
@@ -113,13 +98,7 @@ func (e *Engine) PlanCampaign(start *Graph, objective NodeType, opts CampaignOpt
 				}
 				nextBeam = append(nextBeam, projected)
 				if projected.objectiveReached {
-					campaign := Campaign{
-						Steps:      append([]AttackStep(nil), projected.steps...),
-						Score:      projected.score,
-						Risk:       projected.risk,
-						Objective:  objective,
-						Confidence: projected.confidence,
-					}
+					campaign := Campaign{Steps: append([]AttackStep(nil), projected.steps...), Score: projected.score, Risk: projected.risk, Objective: objective, Confidence: projected.confidence}
 					key := campaignKey(campaign)
 					if _, exists := seen[key]; !exists {
 						seen[key] = struct{}{}
@@ -150,7 +129,34 @@ func (e *Engine) PlanCampaign(start *Graph, objective NodeType, opts CampaignOpt
 		}
 		return campaigns[i].Score > campaigns[j].Score
 	})
+	if len(campaigns) > cfg.TopN {
+		campaigns = campaigns[:cfg.TopN]
+	}
 	return campaigns, nil
+}
+
+func normalizeCampaignOptions(opts CampaignOptions) CampaignOptions {
+	cfg := opts
+	defaults := DefaultCampaignOptions()
+	if cfg.MaxDepth <= 0 {
+		cfg.MaxDepth = defaults.MaxDepth
+	}
+	if cfg.BeamWidth <= 0 {
+		cfg.BeamWidth = defaults.BeamWidth
+	}
+	if cfg.RiskTolerance <= 0 {
+		cfg.RiskTolerance = defaults.RiskTolerance
+	}
+	if cfg.ConfidenceThreshold <= 0 {
+		cfg.ConfidenceThreshold = defaults.ConfidenceThreshold
+	}
+	if cfg.TopN <= 0 {
+		cfg.TopN = defaults.TopN
+	}
+	if cfg.ObjectiveBiasWeight <= 0 {
+		cfg.ObjectiveBiasWeight = defaults.ObjectiveBiasWeight
+	}
+	return cfg
 }
 
 func projectCampaignCandidate(candidate campaignCandidate, action ActionClass, classes []ActionClass, objective NodeType, cfg CampaignOptions) (campaignCandidate, bool) {
@@ -158,8 +164,6 @@ func projectCampaignCandidate(candidate campaignCandidate, action ActionClass, c
 	if err != nil {
 		return campaignCandidate{}, false
 	}
-	gNext := proj.Graph
-
 	actions := append(append([]ActionClass(nil), candidate.actions...), action)
 	risk := cumulativeRisk(actions)
 	if risk > cfg.RiskTolerance {
@@ -179,40 +183,59 @@ func projectCampaignCandidate(candidate campaignCandidate, action ActionClass, c
 	}
 
 	reached := producesNode(action.ProducesNodes, objective)
+	distance := objectiveDistance(actions, objective)
+	proximity := objectiveProximityScore(distance, action, objective)
 	scored := scorePath(hypSteps, actions, classes, nodeTypeIf(reached, objective), DefaultAttackPathConfig())
+	scored.Score += proximity * cfg.ObjectiveBiasWeight
 
-	phases := proj.PhaseProgress
 	return campaignCandidate{
-		graph:            gNext,
+		graph:            proj.Graph,
 		actions:          actions,
 		steps:            steps,
 		score:            scored.Score,
 		risk:             risk,
 		confidence:       confidence,
 		objectiveReached: reached,
-		phaseProgress:    phases,
+		phaseProgress:    proj.PhaseProgress,
 		feasibility:      feasibility,
 	}, true
 }
 
-func attackStepForAction(ac ActionClass, idx int) AttackStep {
-	return AttackStep{
-		ActionClassID: ac.ID,
-		Statement:     fmt.Sprintf("Action class %s is feasible", ac.Name),
-		Confidence:    0.5 + ac.ConfidenceBoost,
-		Phase:         ac.Phase,
+func objectiveDistance(actions []ActionClass, objective NodeType) int {
+	if len(actions) == 0 {
+		return 0
 	}
+	for i := len(actions) - 1; i >= 0; i-- {
+		if producesNode(actions[i].ProducesNodes, objective) {
+			return len(actions) - i - 1
+		}
+	}
+	return len(actions)
+}
+
+func objectiveProximityScore(distance int, action ActionClass, objective NodeType) float64 {
+	if producesNode(action.ProducesNodes, objective) {
+		return 1.0
+	}
+	supporting := 0.0
+	for _, p := range action.Preconditions {
+		for _, req := range p.RequiredNodeTypes {
+			if req == objective {
+				supporting += 0.5
+			}
+		}
+	}
+	return (1 / float64(distance+1)) + supporting
+}
+
+func attackStepForAction(ac ActionClass, idx int) AttackStep {
+	return AttackStep{ActionClassID: ac.ID, Statement: fmt.Sprintf("Action class %s is feasible", ac.Name), Confidence: 0.5 + ac.ConfidenceBoost, Phase: ac.Phase}
 }
 
 func hypothesesFromAttackSteps(steps []AttackStep) []Hypothesis {
 	out := make([]Hypothesis, 0, len(steps))
 	for i, step := range steps {
-		out = append(out, Hypothesis{
-			ID:            fmt.Sprintf("campaign-hyp-%s-%d", step.ActionClassID, i+1),
-			ActionClassID: step.ActionClassID,
-			Statement:     step.Statement,
-			Confidence:    step.Confidence,
-		})
+		out = append(out, Hypothesis{ID: fmt.Sprintf("campaign-hyp-%s-%d", step.ActionClassID, i+1), ActionClassID: step.ActionClassID, Statement: step.Statement, Confidence: step.Confidence})
 	}
 	return out
 }

@@ -9,16 +9,18 @@ import (
 
 // AttackPath represents an ordered, scored sequence of hypotheses that model a feasible attack chain.
 type AttackPath struct {
-	Steps     []Hypothesis
-	Score     float64
-	Risk      float64
-	Objective NodeType
-	Valid     bool
+	Steps                   []Hypothesis
+	Score                   float64
+	Risk                    float64
+	Objective               NodeType
+	ObjectiveProximityScore float64
+	Valid                   bool
 }
 
 // AttackPathConfig controls search depth, pruning, scoring, and objective detection.
 type AttackPathConfig struct {
 	MaxDepth           int
+	BeamWidth          int
 	RiskThreshold      float64
 	DepthPenalty       float64
 	ConfidenceWeight   float64
@@ -31,6 +33,7 @@ type AttackPathConfig struct {
 func DefaultAttackPathConfig() AttackPathConfig {
 	return AttackPathConfig{
 		MaxDepth:           4,
+		BeamWidth:          25,
 		RiskThreshold:      2.0,
 		DepthPenalty:       0.1,
 		ConfidenceWeight:   0.25,
@@ -44,6 +47,13 @@ func DefaultAttackPathConfig() AttackPathConfig {
 type CampaignProjectionState struct {
 	Graph         *Graph
 	PhaseProgress []state.OperationPhase
+}
+
+type attackCandidate struct {
+	graph *Graph
+	stack []ActionClass
+	score float64
+	key   string
 }
 
 func projectCampaignState(base CampaignProjectionState, ac ActionClass) (CampaignProjectionState, error) {
@@ -70,6 +80,9 @@ func (e *Engine) ExpandAttackPaths(st *state.State) ([]AttackPath, error) {
 	if cfg.MaxDepth <= 0 {
 		cfg = DefaultAttackPathConfig()
 	}
+	if cfg.BeamWidth <= 0 {
+		cfg.BeamWidth = DefaultAttackPathConfig().BeamWidth
+	}
 	if cfg.ROEPolicy == nil {
 		cfg.ROEPolicy = func(ActionClass, *Graph, *state.State) bool { return true }
 	}
@@ -85,15 +98,63 @@ func (e *Engine) ExpandAttackPaths(st *state.State) ([]AttackPath, error) {
 	}
 
 	currentPhase := phaseForState(st)
+	beam := make([]attackCandidate, 0, len(classes))
 	paths := make([]AttackPath, 0)
 	seen := make(map[string]struct{})
 
 	for _, root := range classes {
-		if !phaseAllowed(currentPhase, root.Phase) {
+		if !phaseAllowed(currentPhase, root.Phase) || !cfg.ROEPolicy(root, e.graph, st) || !MatchPatterns(e.graph, root.Preconditions) {
 			continue
 		}
-		gCopy := cloneGraph(e.graph)
-		explorePathTree(gCopy, st, cfg, classes, []ActionClass{root}, &paths, seen)
+		stack := []ActionClass{root}
+		scored := scorePath(buildHypotheses(stack), stack, classes, "", cfg)
+		beam = append(beam, attackCandidate{graph: cloneGraph(e.graph), stack: stack, score: scored.Score, key: actionStackKey(stack)})
+	}
+	beam = pruneAttackBeam(beam, cfg.BeamWidth)
+
+	for depth := 1; depth <= cfg.MaxDepth && len(beam) > 0; depth++ {
+		nextBeam := make([]attackCandidate, 0, len(beam)*len(classes))
+		for _, cand := range beam {
+			gCopy := cloneGraph(cand.graph)
+			latest := cand.stack[len(cand.stack)-1]
+			if !MatchPatterns(gCopy, latest.Preconditions) || !cfg.ROEPolicy(latest, gCopy, st) {
+				continue
+			}
+			if err := simulateAction(gCopy, latest); err != nil {
+				continue
+			}
+
+			risk := cumulativeRisk(cand.stack)
+			riskLimit := cfg.RiskThreshold
+			if riskLimit > 0 && riskLimit < 2.0 {
+				riskLimit *= 0.9
+			}
+			if riskLimit > 0 && risk > riskLimit {
+				continue
+			}
+			objective, reached := findObjective(cfg.ObjectiveNodeTypes, latest.ProducesNodes)
+			path := scorePath(buildHypotheses(cand.stack), cand.stack, classes, objective, cfg)
+			if reached {
+				key := pathKey(path)
+				if _, exists := seen[key]; !exists {
+					seen[key] = struct{}{}
+					paths = append(paths, path)
+				}
+			}
+
+			if depth == cfg.MaxDepth {
+				continue
+			}
+			for _, next := range classes {
+				if !phaseAllowed(currentPhase, next.Phase) || actionInStack(cand.stack, next.ID) {
+					continue
+				}
+				nextStack := append(append([]ActionClass(nil), cand.stack...), next)
+				nextScored := scorePath(buildHypotheses(nextStack), nextStack, classes, "", cfg)
+				nextBeam = append(nextBeam, attackCandidate{graph: gCopy, stack: nextStack, score: nextScored.Score, key: actionStackKey(nextStack)})
+			}
+		}
+		beam = pruneAttackBeam(nextBeam, cfg.BeamWidth)
 	}
 
 	sort.Slice(paths, func(i, j int) bool {
@@ -105,67 +166,32 @@ func (e *Engine) ExpandAttackPaths(st *state.State) ([]AttackPath, error) {
 	return paths, nil
 }
 
+func pruneAttackBeam(beam []attackCandidate, width int) []attackCandidate {
+	sort.Slice(beam, func(i, j int) bool {
+		if beam[i].score == beam[j].score {
+			return beam[i].key < beam[j].key
+		}
+		return beam[i].score > beam[j].score
+	})
+	if len(beam) > width {
+		return beam[:width]
+	}
+	return beam
+}
+
+func actionStackKey(stack []ActionClass) string {
+	ids := make([]string, 0, len(stack))
+	for _, step := range stack {
+		ids = append(ids, step.ID)
+	}
+	return fmt.Sprintf("%v", ids)
+}
+
 // ConfigureAttackPathExpansion sets the engine attack-path search configuration.
 func (e *Engine) ConfigureAttackPathExpansion(cfg AttackPathConfig) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.attackPathConfig = cfg
-}
-
-func explorePathTree(g *Graph, st *state.State, cfg AttackPathConfig, classes []ActionClass, stack []ActionClass, out *[]AttackPath, seen map[string]struct{}) {
-	if len(stack) == 0 || len(stack) > cfg.MaxDepth {
-		return
-	}
-
-	latest := stack[len(stack)-1]
-	if !MatchPatterns(g, latest.Preconditions) || !cfg.ROEPolicy(latest, g, st) {
-		return
-	}
-	if err := simulateAction(g, latest); err != nil {
-		return
-	}
-
-	hyp := hypothesisForAction(latest, len(stack))
-	steps := buildHypotheses(stack)
-	steps[len(steps)-1] = hyp
-	risk := cumulativeRisk(stack)
-	if cfg.RiskThreshold > 0 && risk > cfg.RiskThreshold {
-		return
-	}
-
-	if objective, ok := findObjective(cfg.ObjectiveNodeTypes, latest.ProducesNodes); ok {
-		path := scorePath(steps, stack, classes, objective, cfg)
-		key := pathKey(path)
-		if _, exists := seen[key]; !exists {
-			seen[key] = struct{}{}
-			*out = append(*out, path)
-		}
-		return
-	}
-
-	advanced := false
-	currentPhase := phaseForState(st)
-	for _, next := range classes {
-		if !phaseAllowed(currentPhase, next.Phase) {
-			continue
-		}
-		gNext := cloneGraph(g)
-		nextStack := append(append([]ActionClass(nil), stack...), next)
-		advanced = true
-		explorePathTree(gNext, st, cfg, classes, nextStack, out, seen)
-	}
-
-	if !advanced {
-		path := scorePath(steps, stack, classes, "", cfg)
-		path.Valid = MatchPatterns(g, latest.Preconditions)
-		if path.Valid {
-			key := pathKey(path)
-			if _, exists := seen[key]; !exists {
-				seen[key] = struct{}{}
-				*out = append(*out, path)
-			}
-		}
-	}
 }
 
 func findObjective(objectiveNodeTypes []NodeType, produced []NodeType) (NodeType, bool) {
@@ -302,4 +328,13 @@ func enrichRankedActionsWithPaths(ranked []RankedAction, paths []AttackPath) {
 		}
 		return ranked[i].Score > ranked[j].Score
 	})
+}
+
+func actionInStack(stack []ActionClass, id string) bool {
+	for _, step := range stack {
+		if step.ID == id {
+			return true
+		}
+	}
+	return false
 }
