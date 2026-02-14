@@ -123,4 +123,15 @@ func (b *DefaultActionBinder) ActionClass(id string) (ActionClass, bool) {
 	return ac, ok
 }
 
+// Classes returns a snapshot of all loaded action classes.
+func (b *DefaultActionBinder) Classes() []ActionClass {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	out := make([]ActionClass, 0, len(b.classes))
+	for _, ac := range b.classes {
+		out = append(out, ac)
+	}
+	return out
+}
+
 var _ ActionBinder = (*DefaultActionBinder)(nil)
