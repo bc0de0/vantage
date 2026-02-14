@@ -1,0 +1,95 @@
+{
+  "module": {
+    "path": "vantage",
+    "go_version": "1.25",
+    "direct_dependencies": [
+      "github.com/google/uuid v1.6.0",
+      "github.com/spf13/cobra v1.8.1"
+    ],
+    "indirect_dependencies": [
+      "github.com/inconshreveable/mousetrap v1.1.0",
+      "github.com/spf13/pflag v1.0.5"
+    ]
+  },
+  "entrypoints": [
+    "cmd/vantage/root.go",
+    "cmd/vantage/execute.go",
+    "cmd/vantage-dbg/main.go"
+  ],
+  "removed_as_unreachable_or_redundant": [
+    "core/state_machine.go",
+    "core/knowledge/graph.go",
+    "core/opsec/evaluator.go",
+    "core/reasoning/confidence_model.go",
+    "core/reasoning/engine.go",
+    "core/reasoning/types.go",
+    "memory/campaign_store.go",
+    "memory/pattern_store.go",
+    "memory/session_store.go",
+    "planning/tactic_selector.go"
+  ],
+  "current_package_structure": {
+    "ai": [
+      "adapter.go",
+      "client.go",
+      "models.go",
+      "prompt.go",
+      "validate.go"
+    ],
+    "cmd/vantage": [
+      "execute.go",
+      "root.go"
+    ],
+    "cmd/vantage-dbg": [
+      "main.go"
+    ],
+    "core/evidence": [
+      "artifact.go",
+      "signature.go"
+    ],
+    "core/executor": [
+      "engine.go"
+    ],
+    "core/exposure": [
+      "exposure.go"
+    ],
+    "core/intent": [
+      "contract.go"
+    ],
+    "core/roe": [
+      "enforcer.go"
+    ],
+    "core/state": [
+      "operation_phase.go",
+      "state.go"
+    ],
+    "techniques": [
+      "registry.go",
+      "technique.go",
+      "types.go"
+    ],
+    "techniques/t1595": [
+      "technique.go"
+    ],
+    "techniqueset": [
+      "all.go"
+    ]
+  },
+  "audit_results": {
+    "unused_go_files": "Removed files not reachable from cmd entrypoint dependency graph.",
+    "unused_packages": [
+      "vantage/core",
+      "vantage/core/knowledge",
+      "vantage/core/opsec",
+      "vantage/core/reasoning",
+      "vantage/memory",
+      "vantage/planning"
+    ],
+    "orphan_test_files": [],
+    "circular_imports": false,
+    "broken_build_paths": false,
+    "vendor_duplication": false,
+    "stale_binaries_or_build_output": false,
+    "generated_artifacts_committed": false
+  }
+}
