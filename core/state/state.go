@@ -101,6 +101,9 @@ type Campaign struct {
 	mu sync.RWMutex
 }
 
+// State is an alias used by components that reason over campaign lifecycle state.
+type State = Campaign
+
 // New creates a new campaign state instance.
 //
 // This function MUST be called exactly once per campaign.

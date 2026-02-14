@@ -97,7 +97,7 @@ func New(
 		contract: contract,
 		campaign: campaign,
 		exposure: exposureTracker,
-		reasoner: reasoning.NewEngine(),
+		reasoner: reasoning.NewEngine(nil),
 	}, nil
 }
 
